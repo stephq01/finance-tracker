@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0f0f16;
+  --color-surface: #17171f;
+  --color-surface-2: #1f1f2a;
+  --color-line: #2a2a38;
+  --color-text: #f1efe9;
+  --color-muted: #9491a3;
+
+  /* one accent per stage of the money flow, in flow order */
+  --color-income: #2fd180;
+  --color-spend: #ff7a5c;
+  --color-budget: #ffcf5c;
+  --color-emergency: #4ea8ff;
+  --color-save: #38e6c5;
+  --color-debt: #ff4b8b;
+  --color-invest: #f5c445;
+  --color-worth: #9b6bff;
+  --color-sub: #ff8f4e;
+
+  --font-display: "Bricolage Grotesque", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    background: var(--color-ink);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--color-worth);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-worth);
+    outline-offset: 2px;
+  }
+  .font-mono-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.flow-thread {
+  background: linear-gradient(
+    180deg,
+    var(--color-income),
+    var(--color-spend),
+    var(--color-budget),
+    var(--color-emergency),
+    var(--color-save),
+    var(--color-debt),
+    var(--color-invest),
+    var(--color-worth),
+    var(--color-sub),
+    var(--color-income)
+  );
+  background-size: 100% 400%;
+  animation: current-flow 18s linear infinite;
+}
+
+@keyframes current-flow {
+  0% { background-position: 0 0%; }
+  100% { background-position: 0 100%; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.18; }
+  50% { transform: scale(1.15); opacity: 0.32; }
+}
+.page-glow-pulse {
+  animation: glow-pulse 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
