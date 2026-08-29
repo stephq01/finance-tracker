@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext'
 import { businessColors, businessIcons } from '../lib/businessMeta'
 import PageGlow from '../components/PageGlow'
-import { notificationPermission, notificationsSupported, requestNotificationPermission } from '../lib/notify'
+import { pushSubscriptionState, pushSupported, subscribeToPush } from '../lib/push'
 
 export default function Businesses() {
   const { user } = useAuth()
@@ -15,7 +15,23 @@ export default function Businesses() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', category: '', color: businessColors[0], icon: businessIcons[0] })
   const [saving, setSaving] = useState(false)
-  const [permission, setPermission] = useState(notificationPermission())
+  const [pushState, setPushState] = useState('checking')
+  const [pushError, setPushError] = useState('')
+
+  useEffect(() => {
+    pushSubscriptionState().then(setPushState)
+  }, [])
+
+  async function handleEnablePush() {
+    setPushError('')
+    const result = await subscribeToPush(user.id)
+    if (result.error) {
+      setPushError(result.error)
+      setPushState(await pushSubscriptionState())
+    } else {
+      setPushState('subscribed')
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -55,19 +71,30 @@ export default function Businesses() {
         Every side business, one place — stock, sales, deliveries, and restock alerts.
       </p>
 
-      {notificationsSupported() && permission === 'default' && (
+      {pushSupported() && pushState === 'default' && (
         <button
-          onClick={async () => setPermission(await requestNotificationPermission())}
+          onClick={handleEnablePush}
           className="mb-6 rounded-lg border border-dashed border-line px-4 py-2.5 text-sm text-muted hover:text-text hover:border-worth transition-colors"
         >
           🔔 Enable stock alerts on this device
         </button>
       )}
-      {permission === 'denied' && (
+      {pushState === 'subscribed' && (
+        <p className="text-xs mb-6" style={{ color: 'var(--color-income)' }}>
+          🔔 Alerts are on for this device — you'll be notified even when the app isn't open.
+        </p>
+      )}
+      {pushState === 'denied' && (
         <p className="text-xs text-muted mb-6">
           Notifications are blocked for this site — you can still see alerts on this page and in the sidebar badge.
         </p>
       )}
+      {pushState === 'unsupported' && (
+        <p className="text-xs text-muted mb-6">
+          Push notifications aren't supported in this browser — the in-app badge and banner still work.
+        </p>
+      )}
+      {pushError && <p className="text-xs mb-6" style={{ color: 'var(--color-spend)' }}>{pushError}</p>}
 
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>
