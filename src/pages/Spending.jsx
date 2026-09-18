@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext'
-import PageGlow from '../components/PageGlow'
 
 const money = (n) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GHS' }).format(n || 0)
 
 const FREQUENCIES = ['daily', 'weekly', 'monthly', 'quarterly', 'biannual', 'annual', 'one_off']
+const catColors = ['spend', 'budget', 'income', 'emergency', 'save', 'debt', 'invest', 'worth', 'sub']
 
 export default function Spending() {
   const { user } = useAuth()
+  const [tab, setTab] = useState('log') // 'log' | 'byCategory'
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -77,10 +78,47 @@ export default function Spending() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-      <PageGlow color="spend" />
       <h1 className="font-display text-2xl font-semibold text-text mb-1">Spending</h1>
       <p className="text-sm text-muted mb-6">Fixed vs. variable vs. discretionary, tagged by frequency, with a would-I-spend-here-again check.</p>
 
+      <div className="flex gap-1 border-b border-line mb-6">
+        <button
+          onClick={() => setTab('log')}
+          className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${tab === 'log' ? 'text-text border-spend' : 'text-muted border-transparent hover:text-text'}`}
+        >
+          Log
+        </button>
+        <button
+          onClick={() => setTab('byCategory')}
+          className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${tab === 'byCategory' ? 'text-text border-spend' : 'text-muted border-transparent hover:text-text'}`}
+        >
+          By category
+        </button>
+      </div>
+
+      {tab === 'log' ? (
+        <LogTab
+          entries={entries}
+          loading={loading}
+          error={error}
+          form={form}
+          setForm={setForm}
+          saving={saving}
+          stats={stats}
+          onAdd={handleAdd}
+          onDelete={handleDelete}
+        />
+      ) : (
+        <ByCategoryTab entries={entries} />
+      )}
+    </motion.div>
+  )
+}
+
+// ---------------- Log tab (the original add + list view) ----------------
+function LogTab({ entries, loading, error, form, setForm, saving, stats, onAdd, onDelete }) {
+  return (
+    <>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
         <div className="rounded-xl border-l-4 border border-line p-4"
           style={{ borderLeftColor: 'var(--color-spend)', background: 'color-mix(in srgb, var(--color-spend) 10%, var(--color-surface))' }}>
@@ -99,7 +137,7 @@ export default function Spending() {
         </div>
       </div>
 
-      <form onSubmit={handleAdd} className="rounded-xl border border-line bg-surface p-4 mb-8 grid gap-3 md:grid-cols-2">
+      <form onSubmit={onAdd} className="rounded-xl border border-line bg-surface p-4 mb-8 grid gap-3 md:grid-cols-2">
         <div>
           <label className="block text-xs text-muted mb-1">Category</label>
           <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -172,12 +210,94 @@ export default function Spending() {
               </div>
               <div className="flex items-center gap-3">
                 <div className="font-mono-nums text-sm text-spend">{money(e.amount)}</div>
-                <button onClick={() => handleDelete(e.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
+                <button onClick={() => onDelete(e.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
               </div>
             </div>
           ))}
         </div>
       )}
-    </motion.div>
+    </>
+  )
+}
+
+// ---------------- By category tab (yearly/monthly breakdown) ----------------
+function ByCategoryTab({ entries }) {
+  const [period, setPeriod] = useState('year') // 'year' | 'month'
+  const availableYears = useMemo(() => {
+    const years = new Set(entries.map((e) => e.date?.slice(0, 4)).filter(Boolean))
+    years.add(new Date().getFullYear().toString())
+    return [...years].sort((a, b) => b.localeCompare(a))
+  }, [entries])
+  const [year, setYear] = useState(availableYears[0] || new Date().getFullYear().toString())
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
+
+  const filtered = useMemo(() => {
+    if (period === 'year') return entries.filter((e) => e.date?.slice(0, 4) === year)
+    return entries.filter((e) => e.date?.slice(0, 7) === month)
+  }, [entries, period, year, month])
+
+  const breakdown = useMemo(() => {
+    const byCategory = {}
+    for (const e of filtered) byCategory[e.category] = (byCategory[e.category] || 0) + Number(e.amount)
+    const total = filtered.reduce((s, e) => s + Number(e.amount), 0)
+    return Object.entries(byCategory)
+      .map(([category, amount]) => ({ category, amount, pct: total > 0 ? (amount / total) * 100 : 0 }))
+      .sort((a, b) => b.amount - a.amount)
+  }, [filtered])
+
+  const total = filtered.reduce((s, e) => s + Number(e.amount), 0)
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <div className="flex rounded-lg border border-line overflow-hidden text-sm">
+          <button
+            onClick={() => setPeriod('year')}
+            className={`px-3 py-1.5 transition-colors ${period === 'year' ? 'bg-spend text-ink' : 'text-muted hover:text-text'}`}
+          >
+            Whole year
+          </button>
+          <button
+            onClick={() => setPeriod('month')}
+            className={`px-3 py-1.5 transition-colors ${period === 'month' ? 'bg-spend text-ink' : 'text-muted hover:text-text'}`}
+          >
+            One month
+          </button>
+        </div>
+        {period === 'year' ? (
+          <select value={year} onChange={(e) => setYear(e.target.value)}
+            className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none">
+            {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        ) : (
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+            className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none" />
+        )}
+      </div>
+
+      <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+        <div className="text-xs text-muted mb-1">Total spent — {period === 'year' ? year : month}</div>
+        <div className="font-mono-nums text-2xl text-spend font-medium">{money(total)}</div>
+      </div>
+
+      {breakdown.length === 0 ? (
+        <p className="text-sm text-muted">Nothing logged for this {period === 'year' ? 'year' : 'month'} yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {breakdown.map((b, i) => (
+            <div key={b.category}>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-text">{b.category}</span>
+                <span className="text-muted font-mono-nums">{money(b.amount)} · {b.pct.toFixed(0)}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-surface-2 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${b.pct}%`, background: `var(--color-${catColors[i % catColors.length]})` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted mt-4">This pulls straight from everything you've ever logged in Spending — every past year and month stays here for reference, nothing gets cleared out.</p>
+    </div>
   )
 }
