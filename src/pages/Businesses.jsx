@@ -7,16 +7,19 @@ import { useAuth } from '../lib/AuthContext'
 import { businessColors, businessIcons } from '../lib/businessMeta'
 import PageGlow from '../components/PageGlow'
 import { pushSubscriptionState, pushSupported, subscribeToPush } from '../lib/push'
+import { seedOrderManagementDefaults } from '../lib/orderMgmt'
 
 export default function Businesses() {
   const { user } = useAuth()
   const [businesses, setBusinesses] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', category: '', color: businessColors[0], icon: businessIcons[0] })
+  const [form, setForm] = useState({ name: '', category: '', color: businessColors[0], icon: businessIcons[0], module: 'simple' })
   const [saving, setSaving] = useState(false)
   const [pushState, setPushState] = useState('checking')
   const [pushError, setPushError] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     pushSubscriptionState().then(setPushState)
@@ -48,16 +51,28 @@ export default function Businesses() {
     e.preventDefault()
     if (!form.name) return
     setSaving(true)
-    await supabase.from('businesses').insert({
+    const { data: created, error } = await supabase.from('businesses').insert({
       user_id: user.id,
       name: form.name,
       category: form.category || null,
       color: form.color,
       icon: form.icon,
-    })
+      module: form.module,
+    }).select().single()
+    if (!error && created && form.module === 'order_management') {
+      await seedOrderManagementDefaults(created.id, user.id)
+    }
     setSaving(false)
-    setForm({ name: '', category: '', color: businessColors[0], icon: businessIcons[0] })
+    setForm({ name: '', category: '', color: businessColors[0], icon: businessIcons[0], module: 'simple' })
     setShowForm(false)
+    load()
+  }
+
+  async function handleDeleteBusiness(id) {
+    setDeleting(true)
+    await supabase.from('businesses').delete().eq('id', id)
+    setDeleting(false)
+    setConfirmDeleteId(null)
     load()
   }
 
@@ -102,24 +117,63 @@ export default function Businesses() {
         <div className="grid sm:grid-cols-2 gap-3 mb-6">
           {businesses.map((b) => {
             const Icon = Icons[b.icon] || Icons.Store
+            if (confirmDeleteId === b.id) {
+              return (
+                <div
+                  key={b.id}
+                  className="rounded-xl border p-4 flex flex-col gap-3"
+                  style={{ borderColor: 'var(--color-spend)', background: 'color-mix(in srgb, var(--color-spend) 10%, var(--color-surface))' }}
+                >
+                  <div className="text-sm text-text">
+                    Delete <span className="font-medium">{b.name}</span>? This also deletes all of its products, sales, restocks and deliveries. This can't be undone.
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={deleting}
+                      onClick={() => handleDeleteBusiness(b.id)}
+                      className="rounded-lg bg-spend text-ink text-xs font-medium px-3 py-1.5 disabled:opacity-50"
+                    >
+                      {deleting ? 'Deleting…' : 'Yes, delete it'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="rounded-lg border border-line text-muted text-xs px-3 py-1.5"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )
+            }
             return (
-              <Link
+              <div
                 key={b.id}
-                to={`/businesses/${b.id}`}
-                className="rounded-xl border border-line p-4 flex items-center gap-3 hover:border-worth transition-colors"
+                className="relative rounded-xl border border-line hover:border-worth transition-colors"
                 style={{ background: `color-mix(in srgb, var(--color-${b.color}) 8%, var(--color-surface))` }}
               >
-                <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: `color-mix(in srgb, var(--color-${b.color}) 22%, transparent)` }}
+                <Link to={`/businesses/${b.id}`} className="p-4 flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: `color-mix(in srgb, var(--color-${b.color}) 22%, transparent)` }}
+                  >
+                    <Icon size={18} style={{ color: `var(--color-${b.color})` }} />
+                  </div>
+                  <div className="min-w-0 pr-6">
+                    <div className="text-sm text-text font-medium truncate">{b.name}</div>
+                    {b.category && <div className="text-xs text-muted truncate">{b.category}</div>}
+                  </div>
+                </Link>
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(b.id) }}
+                  aria-label={`Delete ${b.name}`}
+                  className="absolute top-3 right-3 text-muted hover:text-spend transition-colors"
                 >
-                  <Icon size={18} style={{ color: `var(--color-${b.color})` }} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm text-text font-medium truncate">{b.name}</div>
-                  {b.category && <div className="text-xs text-muted truncate">{b.category}</div>}
-                </div>
-              </Link>
+                  <Icons.Trash2 size={15} />
+                </button>
+              </div>
             )
           })}
         </div>
@@ -143,6 +197,35 @@ export default function Businesses() {
               className="w-full rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-worth"
               autoFocus
             />
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1">Business type</label>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, module: 'simple' })}
+                className="text-left rounded-lg border px-3 py-2"
+                style={{
+                  borderColor: form.module === 'simple' ? 'var(--color-worth)' : 'var(--color-line)',
+                  background: form.module === 'simple' ? 'color-mix(in srgb, var(--color-worth) 10%, transparent)' : 'transparent',
+                }}
+              >
+                <div className="text-sm text-text">Simple stock &amp; sales</div>
+                <div className="text-xs text-muted">Products, restocks, sales, deliveries — like Water Business.</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, module: 'order_management' })}
+                className="text-left rounded-lg border px-3 py-2"
+                style={{
+                  borderColor: form.module === 'order_management' ? 'var(--color-worth)' : 'var(--color-line)',
+                  background: form.module === 'order_management' ? 'color-mix(in srgb, var(--color-worth) 10%, transparent)' : 'transparent',
+                }}
+              >
+                <div className="text-sm text-text">Order management</div>
+                <div className="text-xs text-muted">Customers, per-order IDs, payments &amp; reconciliation — for Cozy Culture.</div>
+              </button>
+            </div>
           </div>
           <div>
             <label className="block text-xs text-muted mb-1">Category (optional)</label>

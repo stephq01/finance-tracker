@@ -75,6 +75,33 @@ export default function Income() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(e) {
+    setEditingId(e.id)
+    setEditForm({
+      source: e.source,
+      amount: e.amount,
+      expected_date: e.expected_date || '',
+      received_date: e.received_date,
+      notes: e.notes || '',
+    })
+  }
+
+  async function saveEdit(id) {
+    await supabase.from('income_entries').update({
+      source: editForm.source,
+      amount: Number(editForm.amount),
+      expected_date: editForm.expected_date || null,
+      received_date: editForm.received_date,
+      notes: editForm.notes || null,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   const monthEntries = useMemo(
     () => allEntries.filter((e) => e.received_date?.slice(0, 7) === month),
     [allEntries, month]
@@ -235,6 +262,29 @@ export default function Income() {
         <div className="space-y-2 mb-8">
           {monthEntries.map((e) => {
             const isLate = e.expected_date && e.received_date > e.expected_date
+            if (editingId === e.id) {
+              return (
+                <div key={e.id} className="rounded-lg border border-income bg-surface px-4 py-3 grid gap-2 sm:grid-cols-3">
+                  <input value={editForm.source} onChange={(ev) => setEditForm({ ...editForm, source: ev.target.value })}
+                    placeholder="Source"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-income" />
+                  <input type="number" step="0.01" value={editForm.amount} onChange={(ev) => setEditForm({ ...editForm, amount: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-income font-mono-nums" />
+                  <input type="date" value={editForm.expected_date} onChange={(ev) => setEditForm({ ...editForm, expected_date: ev.target.value })}
+                    placeholder="Expected date"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-income" />
+                  <input type="date" value={editForm.received_date} onChange={(ev) => setEditForm({ ...editForm, received_date: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-income" />
+                  <input value={editForm.notes} onChange={(ev) => setEditForm({ ...editForm, notes: ev.target.value })}
+                    placeholder="Notes"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-income sm:col-span-2" />
+                  <div className="sm:col-span-3 flex gap-2">
+                    <button onClick={() => saveEdit(e.id)} className="rounded-lg bg-income text-ink text-xs font-medium px-3 py-1.5">Save</button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={e.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
                 <div>
@@ -247,6 +297,12 @@ export default function Income() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="font-mono-nums text-sm text-income">{money(e.amount)}</div>
+                  <button
+                    onClick={() => startEdit(e)}
+                    className="text-xs text-muted hover:text-text transition-colors"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => handleDelete(e.id)}
                     className="text-xs text-muted hover:text-spend transition-colors"

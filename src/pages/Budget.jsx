@@ -11,6 +11,8 @@ function currentMonth() {
   return new Date().toISOString().slice(0, 7) // YYYY-MM
 }
 
+const norm = (s) => (s || '').trim().toLowerCase()
+
 export default function Budget() {
   const { user } = useAuth()
   const [month, setMonth] = useState(currentMonth())
@@ -19,6 +21,14 @@ export default function Budget() {
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ category: '', budgeted_amount: '' })
   const [saving, setSaving] = useState(false)
+  const [knownCategories, setKnownCategories] = useState([])
+
+  useEffect(() => {
+    supabase.from('expenses').select('category').then(({ data }) => {
+      const uniq = Array.from(new Set((data || []).map((d) => d.category).filter(Boolean)))
+      setKnownCategories(uniq)
+    })
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -63,7 +73,7 @@ export default function Budget() {
 
   const rows = useMemo(() => {
     return budgets.map((b) => {
-      const actual = expenses.filter((e) => e.category === b.category).reduce((sum, e) => sum + Number(e.amount), 0)
+      const actual = expenses.filter((e) => norm(e.category) === norm(b.category)).reduce((sum, e) => sum + Number(e.amount), 0)
       return { ...b, actual, remaining: Number(b.budgeted_amount) - actual }
     })
   }, [budgets, expenses])
@@ -82,7 +92,7 @@ export default function Budget() {
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
           className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-budget" />
       </div>
-      <p className="text-sm text-muted mb-6">Budgeted vs. actual, by category, matched against what you logged in Spending for the same category name.</p>
+      <p className="text-sm text-muted mb-6">Budgeted vs. actual, by category, matched against what you logged in Spending — now matched regardless of capitalization or stray spaces.</p>
 
       <div className="grid grid-cols-2 gap-3 mb-8">
         <div className="rounded-xl border-l-4 border border-line p-4"
@@ -98,8 +108,12 @@ export default function Budget() {
       </div>
 
       <form onSubmit={handleAdd} className="rounded-xl border border-line bg-surface p-4 mb-8 grid gap-3 sm:grid-cols-3">
-        <input placeholder="Category (match Spending exactly)" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+        <input placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+          list="budget-known-categories"
           className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-budget sm:col-span-2" />
+        <datalist id="budget-known-categories">
+          {knownCategories.map((c) => <option key={c} value={c} />)}
+        </datalist>
         <input type="number" step="0.01" placeholder="Budgeted (GHS)" value={form.budgeted_amount} onChange={(e) => setForm({ ...form, budgeted_amount: e.target.value })}
           className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-budget font-mono-nums" />
         <button type="submit" disabled={saving}

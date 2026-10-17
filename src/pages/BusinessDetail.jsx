@@ -5,6 +5,7 @@ import * as Icons from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext'
 import PageGlow from '../components/PageGlow'
+import OrderBusinessDetail from './ordermgmt/OrderBusinessDetail'
 
 const money = (n) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GHS' }).format(n || 0)
@@ -96,6 +97,30 @@ export default function BusinessDetail() {
       </div>
       {business.category && <p className="text-sm text-muted mb-4">{business.category}</p>}
 
+      {business.module === 'order_management' ? (
+        <OrderBusinessDetail business={business} userId={user.id} />
+      ) : (
+        <SimpleBusinessBody
+          id={id}
+          user={user}
+          business={business}
+          alerts={alerts}
+          tab={tab}
+          setTab={setTab}
+          products={products}
+          sales={sales}
+          deliveries={deliveries}
+          productStats={productStats}
+          loadAll={loadAll}
+        />
+      )}
+    </motion.div>
+  )
+}
+
+function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products, sales, deliveries, productStats, loadAll }) {
+  return (
+    <>
       {alerts.length > 0 && (
         <div className="rounded-lg border px-4 py-3 mb-6 text-sm" style={{ borderColor: 'var(--color-spend)', background: 'color-mix(in srgb, var(--color-spend) 12%, var(--color-surface))' }}>
           <span className="text-spend font-medium">Needs attention: </span>
@@ -136,7 +161,7 @@ export default function BusinessDetail() {
       {tab === 'deliveries' && (
         <DeliveriesTab businessId={id} userId={user.id} color={business.color} deliveries={deliveries} onChange={loadAll} />
       )}
-    </motion.div>
+    </>
   )
 }
 

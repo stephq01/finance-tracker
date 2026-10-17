@@ -67,6 +67,10 @@ export default function Spending() {
     load()
   }
 
+  const knownCategories = useMemo(() => {
+    return Array.from(new Set(entries.map((e) => e.category).filter(Boolean)))
+  }, [entries])
+
   const stats = useMemo(() => {
     const total = entries.reduce((sum, e) => sum + Number(e.amount), 0)
     const discretionary = entries.filter((e) => e.type === 'discretionary').reduce((sum, e) => sum + Number(e.amount), 0)
@@ -107,6 +111,8 @@ export default function Spending() {
           stats={stats}
           onAdd={handleAdd}
           onDelete={handleDelete}
+          knownCategories={knownCategories}
+          onReload={load}
         />
       ) : (
         <ByCategoryTab entries={entries} />
@@ -116,7 +122,38 @@ export default function Spending() {
 }
 
 // ---------------- Log tab (the original add + list view) ----------------
-function LogTab({ entries, loading, error, form, setForm, saving, stats, onAdd, onDelete }) {
+function LogTab({ entries, loading, error, form, setForm, saving, stats, onAdd, onDelete, knownCategories, onReload }) {
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(e) {
+    setEditingId(e.id)
+    setEditForm({
+      date: e.date,
+      amount: e.amount,
+      category: e.category,
+      type: e.type,
+      frequency: e.frequency,
+      would_spend_again: e.would_spend_again === null ? '' : e.would_spend_again ? 'yes' : 'no',
+      notes: e.notes || '',
+    })
+  }
+
+  async function saveEdit(id) {
+    await supabase.from('expenses').update({
+      date: editForm.date,
+      amount: Number(editForm.amount),
+      category: editForm.category,
+      type: editForm.type,
+      frequency: editForm.frequency,
+      would_spend_again: editForm.would_spend_again === '' ? null : editForm.would_spend_again === 'yes',
+      notes: editForm.notes || null,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    onReload()
+  }
+
   return (
     <>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
@@ -142,7 +179,11 @@ function LogTab({ entries, loading, error, form, setForm, saving, stats, onAdd, 
           <label className="block text-xs text-muted mb-1">Category</label>
           <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
             placeholder="e.g. groceries, transport, data"
+            list="spending-known-categories"
             className="w-full rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-spend" />
+          <datalist id="spending-known-categories">
+            {knownCategories.map((c) => <option key={c} value={c} />)}
+          </datalist>
         </div>
         <div>
           <label className="block text-xs text-muted mb-1">Amount (GHS)</label>
@@ -198,21 +239,51 @@ function LogTab({ entries, loading, error, form, setForm, saving, stats, onAdd, 
       ) : (
         <div className="space-y-2">
           {entries.map((e) => (
-            <div key={e.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
-              <div>
-                <div className="text-sm text-text">{e.category}</div>
-                <div className="text-xs text-muted">
-                  {e.date} · {e.type} · {e.frequency.replace('_', '-')}
-                  {e.would_spend_again === true && <span className="text-income"> · would spend again</span>}
-                  {e.would_spend_again === false && <span className="text-spend"> · wouldn't spend again</span>}
-                  {e.notes && <span> · {e.notes}</span>}
+            editingId === e.id ? (
+              <div key={e.id} className="rounded-lg border border-spend bg-surface px-4 py-3 grid gap-2 sm:grid-cols-3">
+                <input value={editForm.category} onChange={(ev) => setEditForm({ ...editForm, category: ev.target.value })}
+                  list="spending-known-categories"
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-spend" />
+                <input type="number" step="0.01" value={editForm.amount} onChange={(ev) => setEditForm({ ...editForm, amount: ev.target.value })}
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-spend font-mono-nums" />
+                <input type="date" value={editForm.date} onChange={(ev) => setEditForm({ ...editForm, date: ev.target.value })}
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-spend" />
+                <select value={editForm.type} onChange={(ev) => setEditForm({ ...editForm, type: ev.target.value })}
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-spend">
+                  <option value="fixed">Fixed</option>
+                  <option value="variable">Variable</option>
+                  <option value="discretionary">Discretionary</option>
+                </select>
+                <select value={editForm.frequency} onChange={(ev) => setEditForm({ ...editForm, frequency: ev.target.value })}
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-spend">
+                  {FREQUENCIES.map((f) => <option key={f} value={f}>{f.replace('_', '-')}</option>)}
+                </select>
+                <input value={editForm.notes} onChange={(ev) => setEditForm({ ...editForm, notes: ev.target.value })}
+                  placeholder="Notes"
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-spend" />
+                <div className="sm:col-span-3 flex gap-2">
+                  <button onClick={() => saveEdit(e.id)} className="rounded-lg bg-spend text-ink text-xs font-medium px-3 py-1.5">Save</button>
+                  <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="font-mono-nums text-sm text-spend">{money(e.amount)}</div>
-                <button onClick={() => onDelete(e.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
+            ) : (
+              <div key={e.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
+                <div>
+                  <div className="text-sm text-text">{e.category}</div>
+                  <div className="text-xs text-muted">
+                    {e.date} · {e.type} · {e.frequency.replace('_', '-')}
+                    {e.would_spend_again === true && <span className="text-income"> · would spend again</span>}
+                    {e.would_spend_again === false && <span className="text-spend"> · wouldn't spend again</span>}
+                    {e.notes && <span> · {e.notes}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="font-mono-nums text-sm text-spend">{money(e.amount)}</div>
+                  <button onClick={() => startEdit(e)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
+                  <button onClick={() => onDelete(e.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
+                </div>
               </div>
-            </div>
+            )
           ))}
         </div>
       )}
