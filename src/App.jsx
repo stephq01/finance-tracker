@@ -12,6 +12,7 @@ import Debt from './pages/Debt'
 import Investments from './pages/Investments'
 import NetWorth from './pages/NetWorth'
 import Subscriptions from './pages/Subscriptions'
+import Home from './pages/Home'
 import Businesses from './pages/Businesses'
 import BusinessDetail from './pages/BusinessDetail'
 import { stages } from './lib/stages'
@@ -43,7 +44,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Navigate to="/income" replace />} />
+        <Route index element={<Home />} />
         {stages.map((s) => {
           const Page = builtPages[s.id]
           return (
@@ -56,7 +57,7 @@ export default function App() {
         })}
         <Route path="/businesses" element={<Businesses />} />
         <Route path="/businesses/:id" element={<BusinessDetail />} />
-        <Route path="*" element={<Navigate to="/income" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   )

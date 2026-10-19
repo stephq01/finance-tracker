@@ -22,6 +22,7 @@ export default function Budget() {
   const [form, setForm] = useState({ category: '', budgeted_amount: '' })
   const [saving, setSaving] = useState(false)
   const [knownCategories, setKnownCategories] = useState([])
+  const [editError, setEditError] = useState('')
 
   useEffect(() => {
     supabase.from('expenses').select('category').then(({ data }) => {
@@ -68,6 +69,30 @@ export default function Budget() {
 
   async function handleDelete(id) {
     await supabase.from('budgets').delete().eq('id', id)
+    load()
+  }
+
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(r) {
+    setEditingId(r.id)
+    setEditForm({ category: r.category, budgeted_amount: r.budgeted_amount })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.category.trim() || editForm.budgeted_amount === '') return
+    const { error } = await supabase.from('budgets').update({
+      category: editForm.category.trim(),
+      budgeted_amount: Number(editForm.budgeted_amount),
+    }).eq('id', id)
+    if (error) {
+      setEditError(error.code === '23505' ? 'You already have a budget for that category this month — edit that one instead.' : error.message)
+      return
+    }
+    setEditError('')
+    setEditingId(null)
+    setEditForm(null)
     load()
   }
 
@@ -131,13 +156,31 @@ export default function Budget() {
           {rows.map((r) => {
             const pct = r.budgeted_amount > 0 ? Math.min(100, (r.actual / r.budgeted_amount) * 100) : 0
             const over = r.remaining < 0
+            if (editingId === r.id) {
+              return (
+                <div key={r.id} className="rounded-lg border border-budget bg-surface px-4 py-3 grid gap-2 sm:grid-cols-3">
+                  <input value={editForm.category} onChange={(ev) => setEditForm({ ...editForm, category: ev.target.value })}
+                    list="budget-known-categories" placeholder="Category"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-budget sm:col-span-2" />
+                  <input type="number" step="0.01" value={editForm.budgeted_amount} onChange={(ev) => setEditForm({ ...editForm, budgeted_amount: ev.target.value })}
+                    placeholder="Budgeted (GHS)"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-budget font-mono-nums" />
+                  <div className="sm:col-span-3 flex gap-2">
+                    {editError && <span className="text-xs text-spend self-center">{editError}</span>}
+                    <button onClick={() => saveEdit(r.id)} className="rounded-lg bg-budget text-ink text-xs font-medium px-3 py-1.5">Save</button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={r.id} className="rounded-lg border border-line bg-surface px-4 py-3">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-sm text-text">{r.category}</div>
                   <div className="flex items-center gap-3">
                     <div className="font-mono-nums text-sm text-text">{money(r.actual)} / {money(r.budgeted_amount)}</div>
-                    <button onClick={() => handleDelete(r.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
+                    <button onClick={() => startEdit(r)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
+                    <button onClick={() => handleDelete(r.id)}className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
                   </div>
                 </div>
                 <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">

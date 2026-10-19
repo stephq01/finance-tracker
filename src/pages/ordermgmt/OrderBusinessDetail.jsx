@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Trash2, Copy, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
-import { money, paymentStatus, logAudit, formatOrderDate } from '../../lib/orderMgmt'
+import { money, paymentStatus, logAudit, formatOrderDate, buildCostLookup, insertOrderItems } from '../../lib/orderMgmt'
+import StockInTab from './StockInTab'
+import OrderEditForm from './OrderEditForm'
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -9,6 +11,7 @@ const TABS = [
   { id: 'orders', label: 'Orders' },
   { id: 'customers', label: 'Customers' },
   { id: 'products', label: 'Products' },
+  { id: 'stockin', label: 'Stock in' },
   { id: 'payments', label: 'Payments' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'settings', label: 'Settings' },
@@ -29,13 +32,14 @@ export default function OrderBusinessDetail({ business, userId }) {
   const [orderItems, setOrderItems] = useState([])
   const [payments, setPayments] = useState([])
   const [expenses, setExpenses] = useState([])
+  const [restocks, setRestocks] = useState([])
 
   async function load() {
     setLoading(true)
     const bid = business.id
     const [
       { data: st }, { data: pm }, { data: ec }, { data: dm }, { data: set_ },
-      { data: cu }, { data: pr }, { data: va }, { data: or_ }, { data: oi }, { data: pay }, { data: ex },
+      { data: cu }, { data: pr }, { data: va }, { data: or_ }, { data: oi }, { data: pay }, { data: ex }, { data: rs },
     ] = await Promise.all([
       supabase.from('om_order_statuses').select('*').eq('business_id', bid).order('sort_order'),
       supabase.from('om_payment_methods').select('*').eq('business_id', bid).order('sort_order'),
@@ -49,6 +53,7 @@ export default function OrderBusinessDetail({ business, userId }) {
       supabase.from('om_order_items').select('*').eq('business_id', bid),
       supabase.from('om_payments').select('*').eq('business_id', bid).order('payment_date', { ascending: false }),
       supabase.from('om_expenses').select('*').eq('business_id', bid).order('expense_date', { ascending: false }),
+      supabase.from('om_restocks').select('*').eq('business_id', bid).order('restock_date', { ascending: false }).order('created_at', { ascending: false }),
     ])
     setStatuses(st || [])
     setPaymentMethods(pm || [])
@@ -62,6 +67,7 @@ export default function OrderBusinessDetail({ business, userId }) {
     setOrderItems(oi || [])
     setPayments(pay || [])
     setExpenses(ex || [])
+    setRestocks(rs || [])
     setLoading(false)
   }
 
@@ -87,6 +93,8 @@ export default function OrderBusinessDetail({ business, userId }) {
     [orders, orderItems, payments, customers, statuses]
   )
 
+  const costFor = useMemo(() => buildCostLookup(restocks, products, variants), [restocks, products, variants])
+
   const currency = settings?.currency || 'GHS'
 
   if (loading) return <p className="text-sm text-muted">Loading order management…</p>
@@ -109,7 +117,7 @@ export default function OrderBusinessDetail({ business, userId }) {
       </div>
 
       {tab === 'dashboard' && (
-        <DashboardTab orders={ordersEnriched} expenses={expenses} variants={variants} products={products} currency={currency} />
+        <DashboardTab orders={ordersEnriched} expenses={expenses} expenseCategories={expenseCategories} payments={payments} variants={variants} restocks={restocks} costFor={costFor} currency={currency} />
       )}
       {tab === 'neworder' && (
         <NewOrderTab
@@ -120,6 +128,7 @@ export default function OrderBusinessDetail({ business, userId }) {
           deliveryMethods={deliveryMethods}
           statuses={statuses}
           settings={settings}
+          costFor={costFor}
           currency={currency}
           onDone={() => { load(); setTab('orders') }}
         />
@@ -129,6 +138,10 @@ export default function OrderBusinessDetail({ business, userId }) {
           orders={ordersEnriched}
           statuses={statuses}
           variants={variants}
+          customers={customers}
+          productsWithVariants={productsWithVariants}
+          deliveryMethods={deliveryMethods}
+          costFor={costFor}
           businessId={business.id}
           userId={userId}
           currency={currency}
@@ -140,6 +153,16 @@ export default function OrderBusinessDetail({ business, userId }) {
       )}
       {tab === 'products' && (
         <ProductsTab productsWithVariants={productsWithVariants} businessId={business.id} userId={userId} currency={currency} onChange={load} />
+      )}
+      {tab === 'stockin' && (
+        <StockInTab
+          businessId={business.id}
+          userId={userId}
+          restocks={restocks}
+          productsWithVariants={productsWithVariants}
+          currency={currency}
+          onChange={load}
+        />
       )}
       {tab === 'payments' && (
         <PaymentsTab
@@ -173,36 +196,73 @@ export default function OrderBusinessDetail({ business, userId }) {
 }
 
 // ==================== Dashboard ====================
-function DashboardTab({ orders, expenses, variants, currency }) {
-  const [range, setRange] = useState('month') // today | week | month
+function DashboardTab({ orders, expenses, expenseCategories, payments, variants, restocks, costFor, currency }) {
+  const [range, setRange] = useState('month') // today | week | month | all
 
   const stats = useMemo(() => {
     const now = new Date()
     const todayStr = now.toISOString().slice(0, 10)
     const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10)
     const monthStart = `${now.toISOString().slice(0, 7)}-01`
-    const cutoff = range === 'today' ? todayStr : range === 'week' ? weekAgo : monthStart
+    const cutoff = range === 'today' ? todayStr : range === 'week' ? weekAgo : range === 'month' ? monthStart : '0000-00-00'
 
-    const inRange = orders.filter((o) => o.order_date >= cutoff && o.status?.name !== 'Cancelled' && o.status?.name !== 'Refunded')
+    const live = (o) => !['cancelled', 'refunded'].includes((o.status?.name || '').trim().toLowerCase())
+    const inRange = orders.filter((o) => o.order_date >= cutoff && live(o))
     const revenue = inRange.reduce((s, o) => s + Number(o.total), 0)
     const numOrders = inRange.length
+
+    // Cost of goods sold: what the pieces in these orders cost you. Uses the cost saved on each
+    // order line; older orders without one are estimated from your Stock in records.
+    let cogs = 0
+    let estimatedLines = 0
+    let unknownLines = 0
+    for (const o of inRange) {
+      for (const it of o.items) {
+        let unit = it.unit_cost_snapshot
+        if (unit == null) {
+          unit = it.variant_id ? costFor(it.variant_id) : null
+          if (unit != null) estimatedLines += 1
+        }
+        if (unit == null) unknownLines += 1
+        else cogs += Number(unit) * Number(it.quantity)
+      }
+    }
+    const grossProfit = revenue - cogs
+    const opexRows = expenses.filter((e) => e.expense_date >= cutoff)
+    const opex = opexRows.reduce((s, e) => s + Number(e.amount), 0)
+    const netProfit = grossProfit - opex
+    const margin = revenue > 0 ? (grossProfit / revenue) * 100 : null
+
+    // Supplier purchases are already counted as cost of goods through Stock in, so
+    // logging them again under Expenses would count them twice.
+    const dupCatIds = new Set(
+      expenseCategories.filter((c) => ['product purchase', 'supplier payment'].includes(c.name.trim().toLowerCase())).map((c) => c.id)
+    )
+    const doubleCounted = opexRows.filter((e) => dupCatIds.has(e.category_id)).reduce((s, e) => s + Number(e.amount), 0)
+
     const withPayStatus = inRange.map((o) => ({ o, ps: paymentStatus(o, o.payments) }))
     const paidCount = withPayStatus.filter((x) => x.ps.label === 'Paid' || x.ps.label === 'Overpaid').length
     const pending = withPayStatus.filter((x) => x.ps.balance > 0.005)
     const pendingTotal = pending.reduce((s, x) => s + x.ps.balance, 0)
-    const expensesInRange = expenses.filter((e) => e.expense_date >= cutoff).reduce((s, e) => s + Number(e.amount), 0)
+    const collected = payments.filter((p) => p.payment_date >= cutoff).reduce((s, p) => s + Number(p.amount), 0)
     const avgOrderValue = numOrders > 0 ? revenue / numOrders : 0
 
-    const processingLike = orders.filter((o) => o.status && !['Delivered', 'Cancelled', 'Refunded'].includes(o.status.name))
+    const processingLike = orders.filter((o) => o.status && !['delivered', 'cancelled', 'refunded'].includes(o.status.name.trim().toLowerCase()))
     const lowStock = variants.filter((v) => v.is_active !== false && v.stock_quantity <= Number(v.low_stock_threshold ?? 3))
 
-    return { revenue, numOrders, paidCount, pendingCount: pending.length, pendingTotal, expensesInRange, avgOrderValue, processingCount: processingLike.length, lowStock }
-  }, [orders, expenses, variants, range])
+    return {
+      revenue, numOrders, paidCount, pendingCount: pending.length, pendingTotal, collected, opex, avgOrderValue,
+      cogs, grossProfit, netProfit, margin, estimatedLines, unknownLines, doubleCounted,
+      processingCount: processingLike.length, lowStock,
+    }
+  }, [orders, expenses, expenseCategories, payments, variants, range, costFor])
+
+  const supplierOwed = restocks.reduce((s, r) => s + Number(r.total_cost) - Number(r.amount_paid), 0)
 
   return (
     <div>
       <div className="flex rounded-lg border border-line overflow-hidden text-sm w-fit mb-6">
-        {[['today', 'Today'], ['week', 'This week'], ['month', 'This month']].map(([id, label]) => (
+        {[['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['all', 'All time']].map(([id, label]) => (
           <button
             key={id}
             onClick={() => setRange(id)}
@@ -213,19 +273,45 @@ function DashboardTab({ orders, expenses, variants, currency }) {
         ))}
       </div>
 
+      <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+        <div className="text-sm text-text font-medium mb-3">Profit</div>
+        <div className="space-y-1.5 text-sm">
+          <div className="flex justify-between"><span className="text-muted">Revenue (orders placed)</span><span className="font-mono-nums text-text">{money(stats.revenue, currency)}</span></div>
+          <div className="flex justify-between"><span className="text-muted">− Cost of goods sold</span><span className="font-mono-nums text-text">{money(stats.cogs, currency)}</span></div>
+          <div className="flex justify-between border-t border-line pt-1.5">
+            <span className="text-text">Gross profit{stats.margin !== null ? ` · ${stats.margin.toFixed(0)}% margin` : ''}</span>
+            <span className="font-mono-nums font-medium" style={{ color: stats.grossProfit >= 0 ? 'var(--color-income)' : 'var(--color-spend)' }}>{money(stats.grossProfit, currency)}</span>
+          </div>
+          <div className="flex justify-between"><span className="text-muted">− Expenses</span><span className="font-mono-nums text-text">{money(stats.opex, currency)}</span></div>
+          <div className="flex justify-between border-t border-line pt-1.5">
+            <span className="text-text font-medium">Net profit</span>
+            <span className="font-mono-nums text-lg font-medium" style={{ color: stats.netProfit >= 0 ? 'var(--color-income)' : 'var(--color-spend)' }}>{money(stats.netProfit, currency)}</span>
+          </div>
+        </div>
+        <div className="mt-3 space-y-1 text-xs text-muted">
+          <p>Revenue is what customers were billed (including delivery fees), whether or not they've paid yet — cash actually collected in this period is {money(stats.collected, currency)}. Cancelled and refunded orders are left out.</p>
+          {stats.estimatedLines > 0 && (
+            <p>{stats.estimatedLines} order line{stats.estimatedLines === 1 ? '' : 's'} had no saved cost, so their cost is estimated from your Stock in records. Open and re-save an order to lock in its cost.</p>
+          )}
+          {stats.unknownLines > 0 && (
+            <p style={{ color: 'var(--color-spend)' }}>{stats.unknownLines} order line{stats.unknownLines === 1 ? '' : 's'} have no known cost at all and are counted as GH₵0, so profit is overstated. Log the stock in Stock in (or set a cost price on the product) to fix this.</p>
+          )}
+          {stats.doubleCounted > 0.005 && (
+            <p style={{ color: 'var(--color-spend)' }}>{money(stats.doubleCounted, currency)} of your expenses are filed under "Product purchase" / "Supplier payment". Clothes you buy are already counted as cost of goods through Stock in, so those are being counted twice and net profit is understated. Delete them from Expenses if they're the same purchases.</p>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <StatCard label="Revenue" value={money(stats.revenue, currency)} color="income" />
         <StatCard label="Orders" value={stats.numOrders} color="worth" />
         <StatCard label="Paid orders" value={stats.paidCount} color="income" />
         <StatCard label="In progress" value={stats.processingCount} color="budget" />
-        <StatCard label="Pending payments" value={`${stats.pendingCount} · ${money(stats.pendingTotal, currency)}`} color="spend" />
-        <StatCard label="Expenses" value={money(stats.expensesInRange, currency)} color="spend" />
-        <StatCard label="Cash profit" value={money(stats.revenue - stats.expensesInRange, currency)} color="invest" />
         <StatCard label="Avg order value" value={money(stats.avgOrderValue, currency)} color="worth" />
+        <StatCard label="Pending payments" value={`${stats.pendingCount} · ${money(stats.pendingTotal, currency)}`} color="spend" />
+        <StatCard label="Cash collected" value={money(stats.collected, currency)} color="income" />
+        <StatCard label="Owed to suppliers" value={money(supplierOwed, currency)} color="debt" />
+        <StatCard label="Low-stock items" value={stats.lowStock.length} color="spend" />
       </div>
-      <p className="text-xs text-muted mb-6">
-        "Cash profit" is revenue minus logged expenses for the period — it doesn't yet net out cost of goods sold per item, so treat it as a rough read, not a final profit figure.
-      </p>
 
       {stats.lowStock.length > 0 && (
         <div className="rounded-lg border px-4 py-3" style={{ borderColor: 'var(--color-spend)', background: 'color-mix(in srgb, var(--color-spend) 10%, var(--color-surface))' }}>
@@ -250,7 +336,7 @@ function StatCard({ label, value, color }) {
 }
 
 // ==================== New Order ====================
-function NewOrderTab({ business, userId, customers, productsWithVariants, deliveryMethods, statuses, settings, currency, onDone }) {
+function NewOrderTab({ business, userId, customers, productsWithVariants, deliveryMethods, statuses, settings, costFor, currency, onDone }) {
   const [customerMode, setCustomerMode] = useState('existing')
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', secondary_phone: '', social_handle: '', location: '', notes: '' })
@@ -353,9 +439,10 @@ function NewOrderTab({ business, userId, customers, productsWithVariants, delive
           product_name_snapshot: p?.name || '', size_snapshot: v?.size || null, color_snapshot: v?.color || null,
           unit_price_snapshot: v?.price || 0, quantity: Number(li.quantity),
           line_total: Number(v?.price || 0) * Number(li.quantity),
+          unit_cost_snapshot: costFor(li.variant_id),
         }
       })
-      const { error: ie } = await supabase.from('om_order_items').insert(itemsPayload)
+      const { error: ie } = await insertOrderItems(itemsPayload)
       if (ie) throw ie
 
       await logAudit(business.id, userId, order.id, 'Order created', null, { order_number: order.order_number, total: order.total })
@@ -538,7 +625,7 @@ function buildConfirmationText(confirmation, currency) {
 }
 
 // ==================== Orders ====================
-function OrdersTab({ orders, statuses, variants, businessId, userId, currency, onChange }) {
+function OrdersTab({ orders, statuses, variants, customers, productsWithVariants, deliveryMethods, costFor, businessId, userId, currency, onChange }) {
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState(null)
 
@@ -584,7 +671,7 @@ function OrdersTab({ orders, statuses, variants, businessId, userId, currency, o
                   </div>
                 </button>
                 {isOpen && (
-                  <OrderDetailPanel order={o} statuses={statuses} variants={variants} businessId={businessId} userId={userId} currency={currency} onChange={onChange} />
+                  <OrderDetailPanel order={o} statuses={statuses} variants={variants} customers={customers} productsWithVariants={productsWithVariants} deliveryMethods={deliveryMethods} costFor={costFor} businessId={businessId} userId={userId} currency={currency} onChange={onChange} />
                 )}
               </div>
             )
@@ -595,8 +682,10 @@ function OrdersTab({ orders, statuses, variants, businessId, userId, currency, o
   )
 }
 
-function OrderDetailPanel({ order, statuses, variants, businessId, userId, currency, onChange }) {
+function OrderDetailPanel({ order, statuses, variants, customers, productsWithVariants, deliveryMethods, costFor, businessId, userId, currency, onChange }) {
   const [changing, setChanging] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const locked = ['cancelled', 'refunded'].includes((order.status?.name || '').trim().toLowerCase())
   const [audit, setAudit] = useState([])
   const ps = paymentStatus(order, order.payments)
 
@@ -647,8 +736,30 @@ function OrderDetailPanel({ order, statuses, variants, businessId, userId, curre
 
   return (
     <div className="border-t border-line px-4 py-4 space-y-4">
+      {editing ? (
+        <OrderEditForm
+          order={order}
+          customers={customers}
+          productsWithVariants={productsWithVariants}
+          deliveryMethods={deliveryMethods}
+          costFor={costFor}
+          businessId={businessId}
+          userId={userId}
+          currency={currency}
+          onSaved={() => { setEditing(false); onChange() }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+      <>
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-muted">Items</div>
+        {locked ? (
+          <span className="text-xs text-muted">Cancelled/refunded orders can't be edited</span>
+        ) : (
+          <button onClick={() => setEditing(true)} className="text-xs text-worth hover:opacity-80">Edit order</button>
+        )}
+      </div>
       <div>
-        <div className="text-xs text-muted mb-2">Items</div>
         <div className="space-y-1">
           {order.items.map((it) => (
             <div key={it.id} className="flex justify-between text-sm">
@@ -685,6 +796,8 @@ function OrderDetailPanel({ order, statuses, variants, businessId, userId, curre
       </div>
 
       {order.notes && <div className="text-sm text-muted">Notes: {order.notes}</div>}
+      </>
+      )}
 
       {audit.length > 0 && (
         <div>
@@ -707,6 +820,8 @@ function CustomersTab({ customers, orders, businessId, userId, currency, onChang
   const [form, setForm] = useState({ name: '', phone: '', secondary_phone: '', social_handle: '', location: '', notes: '' })
   const [saving, setSaving] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState(null)
 
   const enriched = useMemo(() => {
     return customers.map((c) => {
@@ -744,12 +859,42 @@ function CustomersTab({ customers, orders, businessId, userId, currency, onChang
 
   const selected = enriched.find((c) => c.id === selectedId)
 
+  async function saveCustomerEdit(e) {
+    e.preventDefault()
+    if (!editForm.name.trim()) return
+    await supabase.from('om_customers').update({
+      name: editForm.name.trim(), phone: editForm.phone || null, secondary_phone: editForm.secondary_phone || null,
+      social_handle: editForm.social_handle || null, location: editForm.location || null, notes: editForm.notes || null,
+    }).eq('id', selectedId)
+    setEditing(false)
+    onChange()
+  }
+
   if (selected) {
     return (
       <div>
-        <button onClick={() => setSelectedId(null)} className="text-xs text-muted hover:text-text mb-4">← All customers</button>
-        <h2 className="text-lg text-text font-medium mb-1">{selected.name}</h2>
-        <p className="text-xs text-muted mb-4">{[selected.phone, selected.location].filter(Boolean).join(' · ')}</p>
+        <button onClick={() => { setSelectedId(null); setEditing(false) }} className="text-xs text-muted hover:text-text mb-4">← All customers</button>
+        {editing ? (
+          <form onSubmit={saveCustomerEdit} className="rounded-xl border border-line bg-surface p-4 grid gap-2 sm:grid-cols-2 mb-4">
+            {[['name', 'Name'], ['phone', 'Phone'], ['secondary_phone', 'Secondary phone'], ['social_handle', 'Instagram / WhatsApp'], ['location', 'Location'], ['notes', 'Notes']].map(([k, ph]) => (
+              <input key={k} placeholder={ph} value={editForm[k]} onChange={(e) => setEditForm({ ...editForm, [k]: e.target.value })}
+                className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-worth" />
+            ))}
+            <div className="flex gap-2 sm:col-span-2">
+              <button type="submit" className="rounded-lg bg-worth text-ink text-sm font-medium px-4 py-2">Save</button>
+              <button type="button" onClick={() => setEditing(false)} className="rounded-lg border border-line text-sm text-muted px-4 py-2">Cancel</button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-lg text-text font-medium">{selected.name}</h2>
+              <button onClick={() => { setEditing(true); setEditForm({ name: selected.name, phone: selected.phone || '', secondary_phone: selected.secondary_phone || '', social_handle: selected.social_handle || '', location: selected.location || '', notes: selected.notes || '' }) }}
+                className="text-xs text-muted hover:text-text">Edit</button>
+            </div>
+            <p className="text-xs text-muted mb-4">{[selected.phone, selected.location].filter(Boolean).join(' · ')}</p>
+          </>
+        )}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <StatCard label="Orders" value={selected.orderCount} color="worth" />
           <StatCard label="Total spent" value={money(selected.totalSpent, currency)} color="income" />
@@ -830,7 +975,9 @@ function ProductsTab({ productsWithVariants, businessId, userId, currency, onCha
   const [productForm, setProductForm] = useState({ name: '', category: '', description: '', cost_price: '' })
   const [addingVariantFor, setAddingVariantFor] = useState(null)
   const [variantForm, setVariantForm] = useState({ size: '', color: '', price: '', stock_quantity: '0', low_stock_threshold: '3' })
-  const [editVariant, setEditVariant] = useState({}) // id -> {price, stock_quantity, low_stock_threshold}
+  const [editVariant, setEditVariant] = useState({}) // id -> {size, color, price, stock_quantity, low_stock_threshold}
+  const [editingProductId, setEditingProductId] = useState(null)
+  const [productEdit, setProductEdit] = useState(null)
   const [saving, setSaving] = useState(false)
 
   async function handleAddProduct(e) {
@@ -846,6 +993,17 @@ function ProductsTab({ productsWithVariants, businessId, userId, currency, onCha
     setSaving(false)
     setProductForm({ name: '', category: '', description: '', cost_price: '' })
     setShowAddProduct(false)
+    onChange()
+  }
+
+  async function saveProductEdit(id) {
+    if (!productEdit.name.trim()) return
+    await supabase.from('om_products').update({
+      name: productEdit.name.trim(),
+      category: productEdit.category || null,
+      cost_price: productEdit.cost_price === '' ? null : Number(productEdit.cost_price),
+    }).eq('id', id)
+    setEditingProductId(null)
     onChange()
   }
 
@@ -879,6 +1037,7 @@ function ProductsTab({ productsWithVariants, businessId, userId, currency, onCha
     const edit = editVariant[id]
     if (!edit) return
     await supabase.from('om_product_variants').update({
+      size: edit.size.trim() || null, color: edit.color.trim() || null,
       price: Number(edit.price), stock_quantity: Number(edit.stock_quantity), low_stock_threshold: Number(edit.low_stock_threshold),
     }).eq('id', id)
     onChange()
@@ -889,21 +1048,43 @@ function ProductsTab({ productsWithVariants, businessId, userId, currency, onCha
       <div className="space-y-4 mb-6">
         {productsWithVariants.map((p) => (
           <div key={p.id} className="rounded-xl border border-line bg-surface p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <div className="text-sm text-text font-medium">{p.name}</div>
-                {p.category && <div className="text-xs text-muted">{p.category}</div>}
+            {editingProductId === p.id ? (
+              <div className="grid gap-2 sm:grid-cols-3 mb-2">
+                <input value={productEdit.name} onChange={(e) => setProductEdit({ ...productEdit, name: e.target.value })} placeholder="Product name"
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-worth" />
+                <input value={productEdit.category} onChange={(e) => setProductEdit({ ...productEdit, category: e.target.value })} placeholder="Category"
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-worth" />
+                <input type="number" step="0.01" value={productEdit.cost_price} onChange={(e) => setProductEdit({ ...productEdit, cost_price: e.target.value })} placeholder="Cost price"
+                  className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-worth font-mono-nums" />
+                <div className="sm:col-span-3 flex gap-2">
+                  <button onClick={() => saveProductEdit(p.id)} className="rounded-lg bg-worth text-ink text-xs font-medium px-3 py-1.5">Save</button>
+                  <button onClick={() => setEditingProductId(null)} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                </div>
               </div>
-              <button onClick={() => handleDeleteProduct(p.id)} className="text-xs text-muted hover:text-spend transition-colors flex items-center gap-1">
-                <Trash2 size={12} /> Delete product
-              </button>
-            </div>
+            ) : (
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div className="text-sm text-text font-medium">{p.name}</div>
+                  {p.category && <div className="text-xs text-muted">{p.category}</div>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { setEditingProductId(p.id); setProductEdit({ name: p.name, category: p.category || '', cost_price: p.cost_price ?? '' }) }}
+                    className="text-xs text-muted hover:text-text transition-colors">Edit</button>
+                  <button onClick={() => handleDeleteProduct(p.id)} className="text-xs text-muted hover:text-spend transition-colors flex items-center gap-1">
+                    <Trash2 size={12} /> Delete product
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="space-y-1">
               {p.variants.map((v) => {
-                const e = editVariant[v.id] || { price: v.price, stock_quantity: v.stock_quantity, low_stock_threshold: v.low_stock_threshold ?? 3 }
+                const e = editVariant[v.id] || { size: v.size || '', color: v.color || '', price: v.price, stock_quantity: v.stock_quantity, low_stock_threshold: v.low_stock_threshold ?? 3 }
                 return (
-                  <div key={v.id} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-center text-sm bg-surface-2 rounded-lg px-3 py-2">
-                    <div className="text-muted sm:col-span-1">{[v.size, v.color].filter(Boolean).join(' / ') || 'Default'}</div>
+                  <div key={v.id} className="grid grid-cols-2 sm:grid-cols-7 gap-2 items-center text-sm bg-surface-2 rounded-lg px-3 py-2">
+                    <input value={e.size} onChange={(ev) => setEditVariant({ ...editVariant, [v.id]: { ...e, size: ev.target.value } })}
+                      className="rounded-md bg-surface border border-line px-2 py-1 text-xs" placeholder="Size" />
+                    <input value={e.color} onChange={(ev) => setEditVariant({ ...editVariant, [v.id]: { ...e, color: ev.target.value } })}
+                      className="rounded-md bg-surface border border-line px-2 py-1 text-xs" placeholder="Color" />
                     <input type="number" step="0.01" value={e.price} onChange={(ev) => setEditVariant({ ...editVariant, [v.id]: { ...e, price: ev.target.value } })}
                       className="rounded-md bg-surface border border-line px-2 py-1 text-xs font-mono-nums" placeholder="Price" />
                     <input type="number" value={e.stock_quantity} onChange={(ev) => setEditVariant({ ...editVariant, [v.id]: { ...e, stock_quantity: ev.target.value } })}

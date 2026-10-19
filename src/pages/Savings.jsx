@@ -69,6 +69,35 @@ export default function Savings() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(g) {
+    setEditingId(g.id)
+    setContribFor(null)
+    setEditForm({
+      name: g.name,
+      kind: g.kind,
+      target_amount: g.target_amount ?? '',
+      current_amount: g.current_amount ?? 0,
+      target_date: g.target_date || '',
+    })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.name.trim()) return
+    await supabase.from('savings_goals').update({
+      name: editForm.name.trim(),
+      kind: editForm.kind,
+      target_amount: editForm.target_amount !== '' ? Number(editForm.target_amount) : null,
+      current_amount: Number(editForm.current_amount || 0),
+      target_date: editForm.target_date || null,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   const totalSaved = useMemo(() => goals.reduce((s, g) => s + Number(g.current_amount), 0), [goals])
   const savingsRate = totalIncome > 0 ? Math.round((totalSaved / totalIncome) * 100) : null
 
@@ -97,6 +126,32 @@ export default function Savings() {
         <div className="space-y-3 mb-6">
           {goals.map((g) => {
             const pct = g.target_amount ? Math.min(100, (g.current_amount / g.target_amount) * 100) : null
+            if (editingId === g.id) {
+              return (
+                <div key={g.id} className="rounded-xl border border-save bg-surface p-4 grid gap-2 sm:grid-cols-2">
+                  <input value={editForm.name} onChange={(ev) => setEditForm({ ...editForm, name: ev.target.value })}
+                    placeholder="Name"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-save sm:col-span-2" />
+                  <select value={editForm.kind} onChange={(ev) => setEditForm({ ...editForm, kind: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-save">
+                    <option value="goal">Goal-based</option>
+                    <option value="sinking_fund">Sinking fund</option>
+                  </select>
+                  <input type="date" value={editForm.target_date} onChange={(ev) => setEditForm({ ...editForm, target_date: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-save" />
+                  <input type="number" step="0.01" value={editForm.target_amount} onChange={(ev) => setEditForm({ ...editForm, target_amount: ev.target.value })}
+                    placeholder="Target amount (optional)"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-save font-mono-nums" />
+                  <input type="number" step="0.01" value={editForm.current_amount} onChange={(ev) => setEditForm({ ...editForm, current_amount: ev.target.value })}
+                    placeholder="Current amount"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-save font-mono-nums" />
+                  <div className="sm:col-span-2 flex gap-2">
+                    <button onClick={() => saveEdit(g.id)} className="rounded-lg bg-save text-ink text-xs font-medium px-3 py-1.5">Save</button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={g.id} className="rounded-xl border border-line bg-surface p-4">
                 <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
@@ -109,7 +164,8 @@ export default function Savings() {
                       className="text-xs rounded-lg px-3 py-1.5 font-medium text-ink" style={{ background: 'var(--color-save)' }}>
                       + Add
                     </button>
-                    <button onClick={() => handleDelete(g.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
+                    <button onClick={() => startEdit(g)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
+                    <button onClick={() => handleDelete(g.id)}className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
                   </div>
                 </div>
                 <div className="font-mono-nums text-sm text-text mb-1">

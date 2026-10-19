@@ -46,6 +46,34 @@ export default function Subscriptions() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(r) {
+    setEditingId(r.id)
+    setEditForm({
+      name: r.name,
+      amount: r.amount,
+      billing_cycle: r.billing_cycle || 'monthly',
+      next_renewal: r.next_renewal || '',
+      active: !!r.active,
+    })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.name || editForm.amount === '') return
+    await supabase.from('subscriptions').update({
+      name: editForm.name,
+      amount: Number(editForm.amount),
+      billing_cycle: editForm.billing_cycle,
+      next_renewal: editForm.next_renewal || null,
+      active: editForm.active,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   async function toggleActive(row) {
     await supabase.from('subscriptions').update({ active: !row.active }).eq('id', row.id)
     load()
@@ -96,6 +124,33 @@ export default function Subscriptions() {
         <div className="space-y-2 mb-6">
           {rows.map((r) => {
             const renewingSoon = r.active && r.next_renewal && r.next_renewal <= soonCutoff && r.next_renewal >= today
+            if (editingId === r.id) {
+              return (
+                <div key={r.id} className="rounded-lg border border-sub bg-surface px-4 py-3 grid gap-2 sm:grid-cols-2">
+                  <input value={editForm.name} onChange={(ev) => setEditForm({ ...editForm, name: ev.target.value })}
+                    placeholder="Name"
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-sub sm:col-span-2" />
+                  <input type="number" step="0.01" placeholder="Amount (GHS)" value={editForm.amount} onChange={(ev) => setEditForm({ ...editForm, amount: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-sub font-mono-nums" />
+                  <select value={editForm.billing_cycle} onChange={(ev) => setEditForm({ ...editForm, billing_cycle: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-sub">
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annual">Annual</option>
+                  </select>
+                  <input type="date" value={editForm.next_renewal} onChange={(ev) => setEditForm({ ...editForm, next_renewal: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-sub" />
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <input type="checkbox" checked={editForm.active} onChange={(ev) => setEditForm({ ...editForm, active: ev.target.checked })} />
+                    Active
+                  </label>
+                  <div className="sm:col-span-2 flex gap-2">
+                    <button onClick={() => saveEdit(r.id)} className="rounded-lg text-ink text-xs font-medium px-3 py-1.5" style={{ background: 'var(--color-sub)' }}>Save</button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={r.id} className={`flex items-center justify-between rounded-lg border border-line px-4 py-3 ${r.active ? 'bg-surface' : 'bg-surface opacity-50'}`}>
                 <div>
@@ -117,6 +172,7 @@ export default function Subscriptions() {
                   <button onClick={() => toggleActive(r)} className="text-xs text-muted hover:text-text transition-colors">
                     {r.active ? 'Cancel' : 'Reactivate'}
                   </button>
+                  <button onClick={() => startEdit(r)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
                   <button onClick={() => handleDelete(r.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
                 </div>
               </div>

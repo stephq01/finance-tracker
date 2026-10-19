@@ -6,9 +6,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext'
 import PageGlow from '../components/PageGlow'
 import OrderBusinessDetail from './ordermgmt/OrderBusinessDetail'
-
-const money = (n) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: 'GHS' }).format(n || 0)
+import { StockTab, SalesTab, DeliveriesTab } from './SimpleBusinessTabs'
 
 const TABS = [
   { id: 'stock', label: 'Stock' },
@@ -110,6 +108,7 @@ export default function BusinessDetail() {
           products={products}
           sales={sales}
           deliveries={deliveries}
+          restocks={restocks}
           productStats={productStats}
           loadAll={loadAll}
         />
@@ -118,7 +117,7 @@ export default function BusinessDetail() {
   )
 }
 
-function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products, sales, deliveries, productStats, loadAll }) {
+function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products, sales, deliveries, restocks, productStats, loadAll }) {
   return (
     <>
       {alerts.length > 0 && (
@@ -153,7 +152,7 @@ function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products,
       </div>
 
       {tab === 'stock' && (
-        <StockTab businessId={id} userId={user.id} color={business.color} productStats={productStats} onChange={loadAll} />
+        <StockTab businessId={id} userId={user.id} color={business.color} productStats={productStats} restocks={restocks} onChange={loadAll} />
       )}
       {tab === 'sales' && (
         <SalesTab businessId={id} userId={user.id} color={business.color} products={products} sales={sales} onChange={loadAll} />
@@ -162,278 +161,5 @@ function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products,
         <DeliveriesTab businessId={id} userId={user.id} color={business.color} deliveries={deliveries} onChange={loadAll} />
       )}
     </>
-  )
-}
-
-// ---------------- Stock tab ----------------
-function StockTab({ businessId, userId, color, productStats, onChange }) {
-  const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ name: '', restock_cycle_days: '', low_stock_threshold: '3' })
-  const [restockingFor, setRestockingFor] = useState(null)
-  const [restockForm, setRestockForm] = useState({ date: new Date().toISOString().slice(0, 10), quantity: '', cost_amount: '', supplier_paid: false, notes: '' })
-  const [saving, setSaving] = useState(false)
-
-  async function addProduct(e) {
-    e.preventDefault()
-    if (!form.name) return
-    setSaving(true)
-    await supabase.from('business_products').insert({
-      business_id: businessId,
-      user_id: userId,
-      name: form.name,
-      restock_cycle_days: form.restock_cycle_days ? Number(form.restock_cycle_days) : null,
-      low_stock_threshold: Number(form.low_stock_threshold || 3),
-    })
-    setSaving(false)
-    setForm({ name: '', restock_cycle_days: '', low_stock_threshold: '3' })
-    setShowAdd(false)
-    onChange()
-  }
-
-  async function addRestock(e, productId) {
-    e.preventDefault()
-    if (!restockForm.quantity) return
-    setSaving(true)
-    await supabase.from('business_restocks').insert({
-      business_id: businessId,
-      product_id: productId,
-      user_id: userId,
-      date: restockForm.date,
-      quantity: Number(restockForm.quantity),
-      cost_amount: restockForm.cost_amount ? Number(restockForm.cost_amount) : null,
-      supplier_paid: restockForm.supplier_paid,
-      notes: restockForm.notes || null,
-    })
-    setSaving(false)
-    setRestockForm({ date: new Date().toISOString().slice(0, 10), quantity: '', cost_amount: '', supplier_paid: false, notes: '' })
-    setRestockingFor(null)
-    onChange()
-  }
-
-  return (
-    <div className="space-y-3">
-      {productStats.map((p) => (
-        <div key={p.id} className="rounded-xl border border-line bg-surface p-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <div className="text-sm text-text font-medium flex items-center gap-2">
-                {p.name}
-                {p.lowStock && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full text-ink font-medium" style={{ background: 'var(--color-spend)' }}>
-                    low stock
-                  </span>
-                )}
-                {p.restockDue && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full text-ink font-medium" style={{ background: 'var(--color-budget)' }}>
-                    restock due
-                  </span>
-                )}
-                {p.unpaidSupplier && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full text-text border border-line">
-                    supplier unpaid
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-muted mt-0.5">
-                {p.stock} in stock
-                {p.restock_cycle_days ? ` · restocks every ~${p.restock_cycle_days}d` : ''}
-                {p.lastRestock ? ` · last restocked ${p.lastRestock}` : ' · never restocked'}
-              </div>
-            </div>
-            <button
-              onClick={() => setRestockingFor(restockingFor === p.id ? null : p.id)}
-              className="text-xs rounded-lg px-3 py-1.5 font-medium text-ink"
-              style={{ background: `var(--color-${color})` }}
-            >
-              + Restock
-            </button>
-          </div>
-
-          {restockingFor === p.id && (
-            <form onSubmit={(e) => addRestock(e, p.id)} className="mt-3 pt-3 border-t border-line grid gap-2 sm:grid-cols-2">
-              <input type="date" required value={restockForm.date} onChange={(e) => setRestockForm({ ...restockForm, date: e.target.value })}
-                className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-              <input type="number" placeholder="Quantity" required value={restockForm.quantity} onChange={(e) => setRestockForm({ ...restockForm, quantity: e.target.value })}
-                className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none font-mono-nums" />
-              <input type="number" step="0.01" placeholder="Cost (optional)" value={restockForm.cost_amount} onChange={(e) => setRestockForm({ ...restockForm, cost_amount: e.target.value })}
-                className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none font-mono-nums" />
-              <label className="flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" checked={restockForm.supplier_paid} onChange={(e) => setRestockForm({ ...restockForm, supplier_paid: e.target.checked })} />
-                Paid supplier already
-              </label>
-              <input placeholder="Notes" value={restockForm.notes} onChange={(e) => setRestockForm({ ...restockForm, notes: e.target.value })}
-                className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none sm:col-span-2" />
-              <button type="submit" disabled={saving} className="sm:col-span-2 rounded-lg text-ink text-sm font-medium py-2 disabled:opacity-50" style={{ background: `var(--color-${color})` }}>
-                {saving ? 'Saving…' : 'Log restock'}
-              </button>
-            </form>
-          )}
-        </div>
-      ))}
-
-      {!showAdd ? (
-        <button onClick={() => setShowAdd(true)} className="rounded-lg border border-dashed border-line px-4 py-3 text-sm text-muted hover:text-text hover:border-worth transition-colors w-full">
-          + Add a product
-        </button>
-      ) : (
-        <form onSubmit={addProduct} className="rounded-xl border border-line bg-surface p-4 grid gap-2 sm:grid-cols-3">
-          <input placeholder="Product name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none sm:col-span-1" />
-          <input type="number" placeholder="Restocks every ~N days" value={form.restock_cycle_days} onChange={(e) => setForm({ ...form, restock_cycle_days: e.target.value })}
-            className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-          <input type="number" placeholder="Low stock threshold" value={form.low_stock_threshold} onChange={(e) => setForm({ ...form, low_stock_threshold: e.target.value })}
-            className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-          <div className="sm:col-span-3 flex gap-2">
-            <button type="submit" disabled={saving} className="rounded-lg text-ink text-sm font-medium px-4 py-2 disabled:opacity-50" style={{ background: `var(--color-${color})` }}>
-              {saving ? 'Adding…' : 'Add product'}
-            </button>
-            <button type="button" onClick={() => setShowAdd(false)} className="rounded-lg border border-line text-sm text-muted px-4 py-2">Cancel</button>
-          </div>
-        </form>
-      )}
-    </div>
-  )
-}
-
-// ---------------- Sales tab ----------------
-function SalesTab({ businessId, userId, color, products, sales, onChange }) {
-  const [form, setForm] = useState({
-    product_id: '', customer_name: '', customer_location: '', quantity: '',
-    payment_method: 'cash', amount_charged: '', amount_paid: '', comments: '',
-    date: new Date().toISOString().slice(0, 10),
-  })
-  const [saving, setSaving] = useState(false)
-
-  async function addSale(e) {
-    e.preventDefault()
-    if (!form.customer_name) return
-    setSaving(true)
-    await supabase.from('business_sales').insert({
-      business_id: businessId,
-      user_id: userId,
-      product_id: form.product_id || null,
-      date: form.date,
-      customer_name: form.customer_name,
-      customer_location: form.customer_location || null,
-      quantity: form.quantity ? Number(form.quantity) : null,
-      payment_method: form.payment_method,
-      amount_charged: Number(form.amount_charged || 0),
-      amount_paid: Number(form.amount_paid || 0),
-      comments: form.comments || null,
-    })
-    setSaving(false)
-    setForm({ ...form, customer_name: '', customer_location: '', quantity: '', amount_charged: '', amount_paid: '', comments: '' })
-    onChange()
-  }
-
-  return (
-    <div>
-      <form onSubmit={addSale} className="rounded-xl border border-line bg-surface p-4 grid gap-2 sm:grid-cols-2 mb-6">
-        {products.length > 0 && (
-          <select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}
-            className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none sm:col-span-2">
-            <option value="">No specific product</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        )}
-        <input placeholder="Customer name" required value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-        <input placeholder="Room / location" value={form.customer_location} onChange={(e) => setForm({ ...form, customer_location: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-        <input type="number" placeholder="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none font-mono-nums" />
-        <select value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none">
-          <option value="momo">MoMo</option>
-          <option value="telecash">Telecash</option>
-          <option value="cash">Physical cash</option>
-          <option value="other">Other</option>
-        </select>
-        <input type="number" step="0.01" placeholder="Amount charged (GHS)" value={form.amount_charged} onChange={(e) => setForm({ ...form, amount_charged: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none font-mono-nums" />
-        <input type="number" step="0.01" placeholder="Amount paid (GHS)" value={form.amount_paid} onChange={(e) => setForm({ ...form, amount_paid: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none font-mono-nums" />
-        <input placeholder="Comments" value={form.comments} onChange={(e) => setForm({ ...form, comments: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none sm:col-span-2" />
-        <button type="submit" disabled={saving} className="sm:col-span-2 rounded-lg text-ink text-sm font-medium py-2.5 disabled:opacity-50" style={{ background: `var(--color-${color})` }}>
-          {saving ? 'Saving…' : 'Log sale'}
-        </button>
-      </form>
-
-      <div className="space-y-2">
-        {sales.map((s) => {
-          const owed = Number(s.amount_charged) - Number(s.amount_paid)
-          return (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
-              <div>
-                <div className="text-sm text-text">{s.customer_name}{s.customer_location ? ` · ${s.customer_location}` : ''}</div>
-                <div className="text-xs text-muted">{s.date} · {s.payment_method}{s.comments ? ` · ${s.comments}` : ''}</div>
-              </div>
-              <div className="text-right">
-                <div className="font-mono-nums text-sm text-text">{money(s.amount_paid)} / {money(s.amount_charged)}</div>
-                {owed > 0 && <div className="text-xs text-spend">owes {money(owed)}</div>}
-              </div>
-            </div>
-          )
-        })}
-        {sales.length === 0 && <p className="text-sm text-muted">No sales logged yet.</p>}
-      </div>
-    </div>
-  )
-}
-
-// ---------------- Deliveries tab ----------------
-function DeliveriesTab({ businessId, userId, color, deliveries, onChange }) {
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), period: 'daily', status: 'completed', notes: '' })
-  const [saving, setSaving] = useState(false)
-
-  async function addDelivery(e) {
-    e.preventDefault()
-    setSaving(true)
-    await supabase.from('business_deliveries').insert({
-      business_id: businessId, user_id: userId,
-      date: form.date, period: form.period, status: form.status, notes: form.notes || null,
-    })
-    setSaving(false)
-    setForm({ ...form, notes: '' })
-    onChange()
-  }
-
-  return (
-    <div>
-      <form onSubmit={addDelivery} className="rounded-xl border border-line bg-surface p-4 grid gap-2 sm:grid-cols-2 mb-6">
-        <input type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-        <select value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none">
-          <option value="daily">Daily round</option>
-          <option value="weekly">Weekly round</option>
-        </select>
-        <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none">
-          <option value="completed">Completed</option>
-          <option value="pending">Pending</option>
-        </select>
-        <input placeholder="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          className="rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none" />
-        <button type="submit" disabled={saving} className="sm:col-span-2 rounded-lg text-ink text-sm font-medium py-2.5 disabled:opacity-50" style={{ background: `var(--color-${color})` }}>
-          {saving ? 'Saving…' : 'Log delivery'}
-        </button>
-      </form>
-      <div className="space-y-2">
-        {deliveries.map((d) => (
-          <div key={d.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
-            <div>
-              <div className="text-sm text-text capitalize">{d.period} round</div>
-              <div className="text-xs text-muted">{d.date}{d.notes ? ` · ${d.notes}` : ''}</div>
-            </div>
-            <span className="text-[10px] px-2 py-1 rounded-full text-ink font-medium" style={{ background: d.status === 'completed' ? 'var(--color-income)' : 'var(--color-budget)' }}>
-              {d.status}
-            </span>
-          </div>
-        ))}
-        {deliveries.length === 0 && <p className="text-sm text-muted">No deliveries logged yet.</p>}
-      </div>
-    </div>
   )
 }

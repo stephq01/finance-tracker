@@ -41,6 +41,30 @@ export default function NetWorth() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(r) {
+    setEditingId(r.id)
+    setEditForm({
+      date: r.date,
+      total_assets: r.total_assets,
+      total_liabilities: r.total_liabilities ?? '',
+    })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.date || editForm.total_assets === '') return
+    await supabase.from('net_worth_snapshots').update({
+      date: editForm.date,
+      total_assets: Number(editForm.total_assets),
+      total_liabilities: Number(editForm.total_liabilities || 0),
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   async function handleDelete(id) {
     await supabase.from('net_worth_snapshots').delete().eq('id', id)
     load()
@@ -114,7 +138,24 @@ export default function NetWorth() {
         <p className="text-sm text-muted">Loading…</p>
       ) : (
         <div className="space-y-2">
-          {[...rows].reverse().map((r) => (
+          {[...rows].reverse().map((r) => {
+            if (editingId === r.id) {
+              return (
+                <div key={r.id} className="rounded-lg border border-worth bg-surface px-4 py-3 grid gap-2 sm:grid-cols-3">
+                  <input type="date" value={editForm.date} onChange={(ev) => setEditForm({ ...editForm, date: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-worth" />
+                  <input type="number" step="0.01" placeholder="Total assets (GHS)" value={editForm.total_assets} onChange={(ev) => setEditForm({ ...editForm, total_assets: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-worth font-mono-nums" />
+                  <input type="number" step="0.01" placeholder="Total liabilities (GHS)" value={editForm.total_liabilities} onChange={(ev) => setEditForm({ ...editForm, total_liabilities: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-worth font-mono-nums" />
+                  <div className="sm:col-span-3 flex gap-2">
+                    <button onClick={() => saveEdit(r.id)} className="rounded-lg text-ink text-xs font-medium px-3 py-1.5" style={{ background: 'var(--color-worth)' }}>Save</button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                  </div>
+                </div>
+              )
+            }
+            return (
             <div key={r.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
               <div>
                 <div className="text-sm text-text">{r.date}</div>
@@ -122,10 +163,12 @@ export default function NetWorth() {
               </div>
               <div className="flex items-center gap-3">
                 <div className="font-mono-nums text-sm text-text">{money(Number(r.total_assets) - Number(r.total_liabilities))}</div>
+                <button onClick={() => startEdit(r)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
                 <button onClick={() => handleDelete(r.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
               </div>
             </div>
-          ))}
+            )
+          })}
           {rows.length === 0 && <p className="text-sm text-muted">No snapshots yet — log your first above.</p>}
         </div>
       )}

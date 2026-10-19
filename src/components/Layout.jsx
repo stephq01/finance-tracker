@@ -22,6 +22,18 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 space-y-1">
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors border-l-2 mb-2 ${
+                isActive ? 'bg-surface text-text border-text' : 'border-transparent text-muted hover:text-text hover:bg-surface'
+              }`
+            }
+          >
+            <Icons.LayoutDashboard size={16} />
+            Overview
+          </NavLink>
           {stages.map((s) => {
             const Icon = Icons[s.icon]
             return (
@@ -77,6 +89,16 @@ export default function Layout() {
 
       {/* mobile top nav — icons only, horizontally scrollable */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-10 bg-surface border-t border-line flex overflow-x-auto">
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) =>
+            `flex flex-col items-center gap-1 px-3.5 py-2.5 text-[10px] shrink-0 ${isActive ? 'text-text' : 'text-muted'}`
+          }
+        >
+          <Icons.LayoutDashboard size={18} />
+          Home
+        </NavLink>
         {stages.map((s) => {
           const Icon = Icons[s.icon]
           return (

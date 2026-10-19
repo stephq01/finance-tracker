@@ -68,6 +68,37 @@ export default function Investments() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(r) {
+    setEditingValue(null)
+    setEditingId(r.id)
+    setEditForm({
+      name: r.name,
+      asset_type: r.asset_type || '',
+      contributed_amount: r.contributed_amount,
+      contribution_date: r.contribution_date,
+      current_value: r.current_value ?? '',
+      is_closed: !!r.is_closed,
+    })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.name || editForm.contributed_amount === '' || !editForm.contribution_date) return
+    await supabase.from('investments').update({
+      name: editForm.name,
+      asset_type: editForm.asset_type || 'Other',
+      contributed_amount: Number(editForm.contributed_amount),
+      contribution_date: editForm.contribution_date,
+      current_value: editForm.current_value !== '' ? Number(editForm.current_value) : null,
+      is_closed: editForm.is_closed,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   const stats = useMemo(() => {
     const contributed = rows.reduce((s, r) => s + Number(r.contributed_amount), 0)
     const current = rows.reduce((s, r) => s + Number(r.current_value ?? r.contributed_amount), 0)
@@ -142,6 +173,30 @@ export default function Investments() {
           {rows.map((r) => {
             const gain = Number(r.current_value ?? r.contributed_amount) - Number(r.contributed_amount)
             const gainPct = Number(r.contributed_amount) > 0 ? (gain / Number(r.contributed_amount)) * 100 : 0
+            if (editingId === r.id) {
+              return (
+                <div key={r.id} className="rounded-lg border border-invest bg-surface px-4 py-3 grid gap-2 sm:grid-cols-2">
+                  <input placeholder="Name" value={editForm.name} onChange={(ev) => setEditForm({ ...editForm, name: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-invest sm:col-span-2" />
+                  <input placeholder="Asset type" value={editForm.asset_type} onChange={(ev) => setEditForm({ ...editForm, asset_type: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-invest" />
+                  <input type="date" value={editForm.contribution_date} onChange={(ev) => setEditForm({ ...editForm, contribution_date: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-invest" />
+                  <input type="number" step="0.01" placeholder="Contributed (GHS)" value={editForm.contributed_amount} onChange={(ev) => setEditForm({ ...editForm, contributed_amount: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-invest font-mono-nums" />
+                  <input type="number" step="0.01" placeholder="Current value (GHS)" value={editForm.current_value} onChange={(ev) => setEditForm({ ...editForm, current_value: ev.target.value })}
+                    className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-invest font-mono-nums" />
+                  <label className="sm:col-span-2 flex items-center gap-2 text-xs text-muted">
+                    <input type="checkbox" checked={editForm.is_closed} onChange={(ev) => setEditForm({ ...editForm, is_closed: ev.target.checked })} />
+                    Sold / closed
+                  </label>
+                  <div className="sm:col-span-2 flex gap-2">
+                    <button onClick={() => saveEdit(r.id)} className="rounded-lg text-ink text-xs font-medium px-3 py-1.5" style={{ background: 'var(--color-invest)' }}>Save</button>
+                    <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={r.id} className="rounded-lg border border-line bg-surface px-4 py-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -173,7 +228,8 @@ export default function Investments() {
                   <button onClick={() => toggleClosed(r)} className="text-xs text-muted hover:text-text transition-colors">
                     {r.is_closed ? 'Reopen' : 'Mark sold/closed'}
                   </button>
-                  <button onClick={() => handleDelete(r.id)} className="text-xs text-muted hover:text-spend transition-colors ml-auto">Delete</button>
+                  <button onClick={() => startEdit(r)} className="text-xs text-muted hover:text-text transition-colors ml-auto">Edit</button>
+                  <button onClick={() => handleDelete(r.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
                 </div>
               </div>
             )

@@ -20,6 +20,8 @@ export default function Businesses() {
   const [pushError, setPushError] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
 
   useEffect(() => {
     pushSubscriptionState().then(setPushState)
@@ -65,6 +67,24 @@ export default function Businesses() {
     setSaving(false)
     setForm({ name: '', category: '', color: businessColors[0], icon: businessIcons[0], module: 'simple' })
     setShowForm(false)
+    load()
+  }
+
+  function startEditBusiness(b) {
+    setEditingId(b.id)
+    setEditForm({ name: b.name, category: b.category || '', color: b.color, icon: b.icon })
+  }
+
+  async function saveBusinessEdit(e, id) {
+    e.preventDefault()
+    if (!editForm.name.trim()) return
+    await supabase.from('businesses').update({
+      name: editForm.name.trim(),
+      category: editForm.category || null,
+      color: editForm.color,
+      icon: editForm.icon,
+    }).eq('id', id)
+    setEditingId(null)
     load()
   }
 
@@ -117,6 +137,65 @@ export default function Businesses() {
         <div className="grid sm:grid-cols-2 gap-3 mb-6">
           {businesses.map((b) => {
             const Icon = Icons[b.icon] || Icons.Store
+            if (editingId === b.id) {
+              return (
+                <form
+                  key={b.id}
+                  onSubmit={(e) => saveBusinessEdit(e, b.id)}
+                  className="rounded-xl border bg-surface p-4 space-y-3 sm:col-span-2"
+                  style={{ borderColor: 'var(--color-worth)' }}
+                >
+                  <input
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    placeholder="Business name"
+                    className="w-full rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-worth"
+                    autoFocus
+                  />
+                  <input
+                    value={editForm.category}
+                    onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                    placeholder="Category (optional)"
+                    className="w-full rounded-lg bg-surface-2 border border-line px-3 py-2 text-sm text-text outline-none focus:border-worth"
+                  />
+                  <div className="flex gap-2 flex-wrap">
+                    {businessColors.map((c) => (
+                      <button
+                        type="button"
+                        key={c}
+                        onClick={() => setEditForm({ ...editForm, color: c })}
+                        className="w-7 h-7 rounded-full border-2"
+                        style={{ background: `var(--color-${c})`, borderColor: editForm.color === c ? 'var(--color-text)' : 'transparent' }}
+                        aria-label={c}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {businessIcons.map((iconName) => {
+                      const I = Icons[iconName]
+                      return (
+                        <button
+                          type="button"
+                          key={iconName}
+                          onClick={() => setEditForm({ ...editForm, icon: iconName })}
+                          className="w-9 h-9 rounded-lg border flex items-center justify-center"
+                          style={{
+                            borderColor: editForm.icon === iconName ? 'var(--color-worth)' : 'var(--color-line)',
+                            background: editForm.icon === iconName ? 'color-mix(in srgb, var(--color-worth) 15%, transparent)' : 'transparent',
+                          }}
+                        >
+                          <I size={16} className="text-text" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" className="rounded-lg bg-worth text-ink text-sm font-medium px-4 py-2">Save changes</button>
+                    <button type="button" onClick={() => setEditingId(null)} className="rounded-lg border border-line text-sm text-muted px-4 py-2">Cancel</button>
+                  </div>
+                </form>
+              )
+            }
             if (confirmDeleteId === b.id) {
               return (
                 <div
@@ -160,19 +239,29 @@ export default function Businesses() {
                   >
                     <Icon size={18} style={{ color: `var(--color-${b.color})` }} />
                   </div>
-                  <div className="min-w-0 pr-6">
+                  <div className="min-w-0 pr-12">
                     <div className="text-sm text-text font-medium truncate">{b.name}</div>
                     {b.category && <div className="text-xs text-muted truncate">{b.category}</div>}
                   </div>
                 </Link>
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(b.id) }}
-                  aria-label={`Delete ${b.name}`}
-                  className="absolute top-3 right-3 text-muted hover:text-spend transition-colors"
-                >
-                  <Icons.Trash2 size={15} />
-                </button>
+                <div className="absolute top-3 right-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); startEditBusiness(b) }}
+                    aria-label={`Edit ${b.name}`}
+                    className="text-muted hover:text-text transition-colors"
+                  >
+                    <Icons.Pencil size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDeleteId(b.id) }}
+                    aria-label={`Delete ${b.name}`}
+                    className="text-muted hover:text-spend transition-colors"
+                  >
+                    <Icons.Trash2 size={15} />
+                  </button>
+                </div>
               </div>
             )
           })}

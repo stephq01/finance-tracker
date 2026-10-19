@@ -70,6 +70,34 @@ export default function Debt() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(d) {
+    setEditingId(d.id)
+    setEditForm({
+      name: d.name,
+      balance: d.balance,
+      interest_rate: d.interest_rate ?? '',
+      minimum_payment: d.minimum_payment ?? '',
+      due_day: d.due_day ?? '',
+    })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.name || editForm.balance === '') return
+    await supabase.from('debts').update({
+      name: editForm.name,
+      balance: Number(editForm.balance),
+      interest_rate: editForm.interest_rate !== '' ? Number(editForm.interest_rate) : null,
+      minimum_payment: editForm.minimum_payment !== '' ? Number(editForm.minimum_payment) : null,
+      due_day: editForm.due_day !== '' ? Number(editForm.due_day) : null,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   const totals = useMemo(() => {
     const balance = debts.reduce((s, d) => s + Number(d.balance), 0)
     const minPayments = debts.reduce((s, d) => s + Number(d.minimum_payment || 0), 0)
@@ -105,7 +133,24 @@ export default function Debt() {
         <p className="text-sm text-muted">Loading…</p>
       ) : (
         <div className="space-y-3 mb-6">
-          {debts.map((d) => (
+          {debts.map((d) => editingId === d.id ? (
+            <div key={d.id} className="rounded-xl border border-debt bg-surface p-4 grid gap-2 sm:grid-cols-2">
+              <input placeholder="Name" value={editForm.name} onChange={(ev) => setEditForm({ ...editForm, name: ev.target.value })}
+                className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-debt sm:col-span-2" />
+              <input type="number" step="0.01" placeholder="Current balance (GHS)" value={editForm.balance} onChange={(ev) => setEditForm({ ...editForm, balance: ev.target.value })}
+                className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-debt font-mono-nums" />
+              <input type="number" step="0.01" placeholder="Interest rate % (optional)" value={editForm.interest_rate} onChange={(ev) => setEditForm({ ...editForm, interest_rate: ev.target.value })}
+                className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-debt font-mono-nums" />
+              <input type="number" step="0.01" placeholder="Minimum payment (optional)" value={editForm.minimum_payment} onChange={(ev) => setEditForm({ ...editForm, minimum_payment: ev.target.value })}
+                className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-debt font-mono-nums" />
+              <input type="number" placeholder="Due day of month (optional)" value={editForm.due_day} onChange={(ev) => setEditForm({ ...editForm, due_day: ev.target.value })}
+                className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-debt font-mono-nums" />
+              <div className="sm:col-span-2 flex gap-2">
+                <button onClick={() => saveEdit(d.id)} className="rounded-lg text-ink text-xs font-medium px-3 py-1.5" style={{ background: 'var(--color-debt)' }}>Save</button>
+                <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+              </div>
+            </div>
+          ) : (
             <div key={d.id} className="rounded-xl border border-line bg-surface p-4">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
                 <div>
@@ -121,6 +166,7 @@ export default function Debt() {
                     className="text-xs rounded-lg px-3 py-1.5 font-medium text-ink" style={{ background: 'var(--color-debt)' }}>
                     + Payment
                   </button>
+                  <button onClick={() => startEdit(d)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
                   <button onClick={() => handleDelete(d.id)} className="text-xs text-muted hover:text-spend transition-colors">Delete</button>
                 </div>
               </div>

@@ -20,6 +20,8 @@ order management for Cozy Culture-style businesses).
    3. `supabase/schema_investments_update.sql`
    4. `supabase/schema_push.sql` — push notification subscriptions
    5. `supabase/schema_order_management.sql` — **new**: the Order Management module (Cozy Culture). Safe to run any time — it only adds new tables plus one new column (`module`) to `businesses`; it does not touch any existing Water Business or Personal Finance data.
+   6. `supabase/schema_om_restocks.sql` — **new**: lets Cozy Culture log stock bought from suppliers (quantity, size, cost, what you've paid the supplier). Additive, safe to run twice.
+   7. `supabase/schema_om_profit.sql` — **new**: saves what each piece cost at the time of sale so Cozy Culture can show real gross/net profit. One nullable column; safe to run twice. (The app still works if you haven't run it yet, but profit will be estimated.)
 4. In Supabase → Authentication → Providers, make sure Email is enabled. For a fast personal setup, you can also turn off "Confirm email" under Authentication → Settings so sign-up doesn't require clicking an email link.
 5. `npm run dev` — opens at localhost.
 
@@ -41,5 +43,10 @@ Businesses can also be deleted from the Businesses page now (with a confirmation
 
 Real push notifications are live: a daily stock/restock alert and a daily spending-log reminder (Supabase Edge Functions + Cron).
 
-### Order management — what's next (Day 2/3 of the original plan)
-Still to come: CSV/export, a dedicated Reports screen (sales/payment/expense/profit reports with date filtering), gross/net profit that nets out cost of goods sold per item (the dashboard currently shows revenue minus expenses only, clearly labeled as a rough figure), and deeper mobile polish pass. None of this blocks using the New Order → Payment → Delivered workflow today.
+### Latest additions
+- **Overview page** (the landing page): one screen summarising all nine stages plus businesses, with a "needs attention" list.
+- **Editing everywhere**: every entry on every finance tab, plus Water Business products/restocks/sales/deliveries, and Cozy Culture products, customers, stock-in entries and **orders** (items, prices, delivery, discount, customer, notes — stock and the audit timeline stay in step).
+- **Cozy Culture profit**: Revenue − cost of goods = gross profit, − expenses = net profit, with warnings wherever a cost is estimated or unknown.
+
+### Still to come
+CSV/export and a dedicated Reports screen; the daily spending-reminder push notification needs diagnosing.

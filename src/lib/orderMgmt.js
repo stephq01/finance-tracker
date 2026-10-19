@@ -73,3 +73,49 @@ export function formatOrderDate(d) {
   if (!d) return ''
   return new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+// ---------- stock + cost helpers shared by several screens ----------
+
+// Reads the current stock from the database (not from screen state) so two quick
+// changes in a row can never overwrite each other with a stale number.
+export async function adjustVariantStock(businessId, userId, variantId, delta, reason, orderId = null) {
+  if (!variantId || !delta) return
+  const { data: v } = await supabase.from('om_product_variants').select('stock_quantity').eq('id', variantId).single()
+  if (!v) return
+  await supabase.from('om_product_variants').update({ stock_quantity: Number(v.stock_quantity) + delta }).eq('id', variantId)
+  await supabase.from('om_inventory_transactions').insert({
+    business_id: businessId, user_id: userId, variant_id: variantId, order_id: orderId, change_qty: delta, reason,
+  })
+}
+
+// Best estimate of what one piece of a variant costs you: the quantity-weighted
+// average of what you actually paid in Stock in, else the product's cost price,
+// else null (unknown — never silently treated as a real number).
+export function buildCostLookup(restocks, products, variants) {
+  const byVariant = new Map()
+  for (const r of restocks || []) {
+    if (!r.variant_id) continue
+    const a = byVariant.get(r.variant_id) || { qty: 0, cost: 0 }
+    a.qty += Number(r.quantity)
+    a.cost += Number(r.quantity) * Number(r.unit_cost)
+    byVariant.set(r.variant_id, a)
+  }
+  return (variantId) => {
+    const a = byVariant.get(variantId)
+    if (a && a.qty > 0) return a.cost / a.qty
+    const v = (variants || []).find((x) => x.id === variantId)
+    const p = v && (products || []).find((x) => x.id === v.product_id)
+    return p?.cost_price != null ? Number(p.cost_price) : null
+  }
+}
+
+// Inserts order items. If the optional profit column hasn't been added to the
+// database yet (schema_om_profit.sql not run), retries without it so ordering
+// never breaks.
+export async function insertOrderItems(items) {
+  const res = await supabase.from('om_order_items').insert(items)
+  if (res.error && /unit_cost_snapshot/.test(res.error.message || '')) {
+    return supabase.from('om_order_items').insert(items.map(({ unit_cost_snapshot: _drop, ...rest }) => rest))
+  }
+  return res
+}

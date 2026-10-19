@@ -59,6 +59,27 @@ export default function EmergencyFund() {
     load()
   }
 
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  function startEdit(t) {
+    setEditingId(t.id)
+    setEditForm({ date: t.date, amount: t.amount, kind: t.kind, notes: t.notes || '' })
+  }
+
+  async function saveEdit(id) {
+    if (!editForm.date || editForm.amount === '') return
+    await supabase.from('emergency_fund_transactions').update({
+      date: editForm.date,
+      amount: Number(editForm.amount),
+      kind: editForm.kind,
+      notes: editForm.notes || null,
+    }).eq('id', id)
+    setEditingId(null)
+    setEditForm(null)
+    load()
+  }
+
   const balance = useMemo(() => {
     return txns.reduce((sum, t) => sum + (t.kind === 'contribution' ? Number(t.amount) : -Number(t.amount)), 0)
   }, [txns])
@@ -120,17 +141,45 @@ export default function EmergencyFund() {
           </form>
 
           <div className="space-y-2">
-            {txns.map((t) => (
-              <div key={t.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
-                <div>
-                  <div className="text-sm text-text capitalize">{t.kind}</div>
-                  <div className="text-xs text-muted">{t.date}{t.notes ? ` · ${t.notes}` : ''}</div>
+            {txns.map((t) => {
+              if (editingId === t.id) {
+                return (
+                  <div key={t.id} className="rounded-lg border border-emergency bg-surface px-4 py-3 grid gap-2 sm:grid-cols-2">
+                    <input type="date" value={editForm.date} onChange={(ev) => setEditForm({ ...editForm, date: ev.target.value })}
+                      className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-emergency" />
+                    <input type="number" step="0.01" value={editForm.amount} onChange={(ev) => setEditForm({ ...editForm, amount: ev.target.value })}
+                      placeholder="Amount (GHS)"
+                      className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-emergency font-mono-nums" />
+                    <select value={editForm.kind} onChange={(ev) => setEditForm({ ...editForm, kind: ev.target.value })}
+                      className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-emergency">
+                      <option value="contribution">Contribution (top-up)</option>
+                      <option value="withdrawal">Withdrawal (used it)</option>
+                    </select>
+                    <input value={editForm.notes} onChange={(ev) => setEditForm({ ...editForm, notes: ev.target.value })}
+                      placeholder="Notes"
+                      className="rounded-lg bg-surface-2 border border-line px-3 py-1.5 text-sm text-text outline-none focus:border-emergency" />
+                    <div className="sm:col-span-2 flex gap-2">
+                      <button onClick={() => saveEdit(t.id)} className="rounded-lg bg-emergency text-ink text-xs font-medium px-3 py-1.5">Save</button>
+                      <button onClick={() => { setEditingId(null); setEditForm(null) }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+                    </div>
+                  </div>
+                )
+              }
+              return (
+                <div key={t.id} className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
+                  <div>
+                    <div className="text-sm text-text capitalize">{t.kind}</div>
+                    <div className="text-xs text-muted">{t.date}{t.notes ? ` · ${t.notes}` : ''}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="font-mono-nums text-sm" style={{ color: t.kind === 'contribution' ? 'var(--color-income)' : 'var(--color-spend)' }}>
+                      {t.kind === 'contribution' ? '+' : '−'}{money(t.amount)}
+                    </div>
+                    <button onClick={() => startEdit(t)} className="text-xs text-muted hover:text-text transition-colors">Edit</button>
+                  </div>
                 </div>
-                <div className="font-mono-nums text-sm" style={{ color: t.kind === 'contribution' ? 'var(--color-income)' : 'var(--color-spend)' }}>
-                  {t.kind === 'contribution' ? '+' : '−'}{money(t.amount)}
-                </div>
-              </div>
-            ))}
+              )
+            })}
             {txns.length === 0 && <p className="text-sm text-muted">No transactions logged yet.</p>}
           </div>
         </>
