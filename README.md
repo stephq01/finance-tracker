@@ -22,6 +22,7 @@ order management for Cozy Culture-style businesses).
    5. `supabase/schema_order_management.sql` — **new**: the Order Management module (Cozy Culture). Safe to run any time — it only adds new tables plus one new column (`module`) to `businesses`; it does not touch any existing Water Business or Personal Finance data.
    6. `supabase/schema_om_restocks.sql` — **new**: lets Cozy Culture log stock bought from suppliers (quantity, size, cost, what you've paid the supplier). Additive, safe to run twice.
    7. `supabase/schema_om_profit.sql` — **new**: saves what each piece cost at the time of sale so Cozy Culture can show real gross/net profit. One nullable column; safe to run twice. (The app still works if you haven't run it yet, but profit will be estimated.)
+   8. `supabase/schema_batches.sql` — **new**: lets a Water-style business record which restock (batch) a sale came out of. One nullable column; safe to run twice. (The app still works without it — sales are then assigned to the oldest restock automatically.)
 4. In Supabase → Authentication → Providers, make sure Email is enabled. For a fast personal setup, you can also turn off "Confirm email" under Authentication → Settings so sign-up doesn't require clicking an email link.
 5. `npm run dev` — opens at localhost.
 
@@ -47,6 +48,8 @@ Real push notifications are live: a daily stock/restock alert and a daily spendi
 - **Overview page** (the landing page): one screen summarising all nine stages plus businesses, with a "needs attention" list.
 - **Editing everywhere**: every entry on every finance tab, plus Water Business products/restocks/sales/deliveries, and Cozy Culture products, customers, stock-in entries and **orders** (items, prices, delivery, discount, customer, notes — stock and the audit timeline stay in step).
 - **Cozy Culture profit**: Revenue − cost of goods = gross profit, − expenses = net profit, with warnings wherever a cost is estimated or unknown.
+
+- **Water-style businesses: Batches, Revenue and Profit tabs.** Every restock is its own batch (bought / sold / left, cost, revenue and profit per batch, and which sales came out of it). Sales take from the batch you pick, or the oldest batch with stock left. Revenue tab = what you charged / collected / still owed, by payment method, product and month, plus an estimate for stock still on hand. Profit tab = revenue − cost of what you sold, by product and by batch, plus a "cash check" of what you should be holding.
 
 ### Still to come
 CSV/export and a dedicated Reports screen; the daily spending-reminder push notification needs diagnosing.

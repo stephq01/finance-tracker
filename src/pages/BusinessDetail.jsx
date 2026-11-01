@@ -7,10 +7,15 @@ import { useAuth } from '../lib/AuthContext'
 import PageGlow from '../components/PageGlow'
 import OrderBusinessDetail from './ordermgmt/OrderBusinessDetail'
 import { StockTab, SalesTab, DeliveriesTab } from './SimpleBusinessTabs'
+import { BatchesTab, RevenueTab, ProfitTab } from './SimpleBusinessReports'
+import { allocateSales } from '../lib/stockBatches'
 
 const TABS = [
   { id: 'stock', label: 'Stock' },
+  { id: 'batches', label: 'Batches' },
   { id: 'sales', label: 'Sales' },
+  { id: 'revenue', label: 'Revenue' },
+  { id: 'profit', label: 'Profit' },
   { id: 'deliveries', label: 'Deliveries' },
 ]
 
@@ -60,9 +65,14 @@ export default function BusinessDetail() {
           : false
       const lowStock = stock <= Number(p.low_stock_threshold)
       const unpaidSupplier = rs.some((r) => !r.supplier_paid)
-      return { ...p, stock, lastRestock, restockDue, lowStock, unpaidSupplier }
+      const restocked = rs.reduce((sum, r) => sum + Number(r.quantity), 0)
+      const sold = ss.reduce((sum, x) => sum + Number(x.quantity || 0), 0)
+      return { ...p, stock, restocked, sold, lastRestock, restockDue, lowStock, unpaidSupplier }
     })
   }, [products, restocks, sales])
+
+  // which restock (batch) every sale came out of — recalculated from the records each time
+  const batchData = useMemo(() => allocateSales(products, restocks, sales), [products, restocks, sales])
 
   const alerts = productStats.filter((p) => p.lowStock || p.restockDue)
 
@@ -110,6 +120,7 @@ export default function BusinessDetail() {
           deliveries={deliveries}
           restocks={restocks}
           productStats={productStats}
+          batchData={batchData}
           loadAll={loadAll}
         />
       )}
@@ -117,7 +128,7 @@ export default function BusinessDetail() {
   )
 }
 
-function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products, sales, deliveries, restocks, productStats, loadAll }) {
+function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products, sales, deliveries, restocks, productStats, batchData, loadAll }) {
   return (
     <>
       {alerts.length > 0 && (
@@ -136,12 +147,12 @@ function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products,
         </div>
       )}
 
-      <div className="flex gap-1 border-b border-line mb-6">
+      <div className="flex gap-1 border-b border-line mb-6 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${
+            className={`px-3 py-2 text-sm border-b-2 -mb-px transition-colors whitespace-nowrap ${
               tab === t.id ? 'text-text' : 'text-muted hover:text-text'
             }`}
             style={{ borderBottomColor: tab === t.id ? `var(--color-${business.color})` : 'transparent' }}
@@ -152,10 +163,20 @@ function SimpleBusinessBody({ id, user, business, alerts, tab, setTab, products,
       </div>
 
       {tab === 'stock' && (
-        <StockTab businessId={id} userId={user.id} color={business.color} productStats={productStats} restocks={restocks} onChange={loadAll} />
+        <StockTab businessId={id} userId={user.id} color={business.color} productStats={productStats} restocks={restocks}
+          unlinkedSales={products.length > 0 ? sales.filter((x) => !x.product_id || !(Number(x.quantity) > 0)).length : 0} onChange={loadAll} />
+      )}
+      {tab === 'batches' && (
+        <BatchesTab color={business.color} products={products} restocks={restocks} sales={sales} batchData={batchData} />
       )}
       {tab === 'sales' && (
-        <SalesTab businessId={id} userId={user.id} color={business.color} products={products} sales={sales} onChange={loadAll} />
+        <SalesTab businessId={id} userId={user.id} color={business.color} products={products} restocks={restocks} batchData={batchData} sales={sales} onChange={loadAll} />
+      )}
+      {tab === 'revenue' && (
+        <RevenueTab color={business.color} products={products} productStats={productStats} sales={sales} />
+      )}
+      {tab === 'profit' && (
+        <ProfitTab color={business.color} products={products} restocks={restocks} sales={sales} batchData={batchData} />
       )}
       {tab === 'deliveries' && (
         <DeliveriesTab businessId={id} userId={user.id} color={business.color} deliveries={deliveries} onChange={loadAll} />

@@ -27,7 +27,7 @@ function ConfirmBox({ message, busy, onYes, onNo }) {
 }
 
 // ---------------- Stock tab ----------------
-export function StockTab({ businessId, userId, color, productStats, restocks, onChange }) {
+export function StockTab({ businessId, userId, color, productStats, restocks, unlinkedSales = 0, onChange }) {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', restock_cycle_days: '', low_stock_threshold: '3' })
   const [restockingFor, setRestockingFor] = useState(null)
@@ -148,6 +148,12 @@ export function StockTab({ businessId, userId, color, productStats, restocks, on
 
   return (
     <div className="space-y-3">
+      {unlinkedSales > 0 && (
+        <div className="rounded-lg border px-4 py-3 text-sm"
+          style={{ borderColor: 'var(--color-budget)', background: 'color-mix(in srgb, var(--color-budget) 12%, var(--color-surface))' }}>
+          <span className="text-text">{unlinkedSales} logged sale{unlinkedSales === 1 ? '' : 's'} {unlinkedSales === 1 ? 'isn\'t' : 'aren\'t'} linked to a product, so the stock numbers below are too high. Go to the Sales tab → "Needs product" to fix {unlinkedSales === 1 ? 'it' : 'them'}.</span>
+        </div>
+      )}
       {productStats.map((p) => {
         const history = restocks.filter((r) => r.product_id === p.id)
         const isEditing = editingProductId === p.id
@@ -182,7 +188,7 @@ export function StockTab({ businessId, userId, color, productStats, restocks, on
                     )}
                   </div>
                   <div className="text-xs text-muted mt-0.5">
-                    {p.stock} in stock
+                    {p.stock} in stock <span className="opacity-70">({p.restocked} restocked − {p.sold} sold)</span>
                     {p.restock_cycle_days ? ` · restocks every ~${p.restock_cycle_days}d` : ''}
                     {p.lastRestock ? ` · last restocked ${p.lastRestock}` : ' · never restocked'}
                   </div>
@@ -214,7 +220,7 @@ export function StockTab({ businessId, userId, color, productStats, restocks, on
                 <input type="date" required value={restockForm.date} onChange={(e) => setRestockForm({ ...restockForm, date: e.target.value })} className={inputCls} />
                 <input type="number" placeholder="Quantity" required value={restockForm.quantity} onChange={(e) => setRestockForm({ ...restockForm, quantity: e.target.value })}
                   className={`${inputCls} font-mono-nums`} />
-                <input type="number" step="0.01" placeholder="Cost (optional)" value={restockForm.cost_amount} onChange={(e) => setRestockForm({ ...restockForm, cost_amount: e.target.value })}
+                <input type="number" step="0.01" placeholder="Total cost of this restock, GHS (optional)" value={restockForm.cost_amount} onChange={(e) => setRestockForm({ ...restockForm, cost_amount: e.target.value })}
                   className={`${inputCls} font-mono-nums`} />
                 <label className="flex items-center gap-2 text-xs text-muted">
                   <input type="checkbox" checked={restockForm.supplier_paid} onChange={(e) => setRestockForm({ ...restockForm, supplier_paid: e.target.checked })} />
@@ -239,7 +245,7 @@ export function StockTab({ businessId, userId, color, productStats, restocks, on
                         <div key={r.id} className="grid gap-2 sm:grid-cols-2 rounded-lg border border-line p-3">
                           <input type="date" value={restockEdit.date} onChange={(e) => setRestockEdit({ ...restockEdit, date: e.target.value })} className={inputCls} />
                           <input type="number" value={restockEdit.quantity} onChange={(e) => setRestockEdit({ ...restockEdit, quantity: e.target.value })} placeholder="Quantity" className={`${inputCls} font-mono-nums`} />
-                          <input type="number" step="0.01" value={restockEdit.cost_amount} onChange={(e) => setRestockEdit({ ...restockEdit, cost_amount: e.target.value })} placeholder="Cost" className={`${inputCls} font-mono-nums`} />
+                          <input type="number" step="0.01" value={restockEdit.cost_amount} onChange={(e) => setRestockEdit({ ...restockEdit, cost_amount: e.target.value })} placeholder="Total cost of this restock, GHS"className={`${inputCls} font-mono-nums`} />
                           <label className="flex items-center gap-2 text-xs text-muted">
                             <input type="checkbox" checked={restockEdit.supplier_paid} onChange={(e) => setRestockEdit({ ...restockEdit, supplier_paid: e.target.checked })} /> Paid supplier
                           </label>
@@ -253,7 +259,7 @@ export function StockTab({ businessId, userId, color, productStats, restocks, on
                         <div key={r.id}>
                           <div className="flex items-center justify-between text-xs">
                             <div className="text-muted">
-                              {r.date} · +{r.quantity}{r.cost_amount != null ? ` · ${money(r.cost_amount)}` : ''}
+                              {r.date} · +{r.quantity}{r.cost_amount != null ? ` · ${money(r.cost_amount)} total` : ''}
                               {r.notes ? ` · ${r.notes}` : ''}
                               {' · '}
                               <span style={{ color: r.supplier_paid ? 'var(--color-income)' : 'var(--color-spend)' }}>
@@ -305,19 +311,35 @@ export function StockTab({ businessId, userId, color, productStats, restocks, on
 }
 
 // ---------------- Sales tab (Unpaid / Paid) ----------------
-function SaleFields({ form, setForm, products }) {
+function SaleFields({ form, setForm, products, restocks, batchData }) {
+  // restocks of the chosen product that still have stock (plus the one already chosen, so editing keeps it visible)
+  const batchOptions = form.product_id
+    ? restocks
+        .filter((r) => r.product_id === form.product_id)
+        .map((r) => batchData.batches.get(r.id))
+        .filter((b) => b && (b.left > 0 || b.id === form.restock_id))
+        .sort((a, b) => a.n - b.n)
+    : []
   return (
     <>
       {products.length > 0 && (
-        <select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} className={`${inputCls} sm:col-span-2`}>
-          <option value="">No specific product</option>
+        <select required value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value, restock_id: '' })} className={`${inputCls} sm:col-span-2`}>
+          <option value="">Select the product sold…</option>
           {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      )}
+      {batchOptions.length > 0 && (
+        <select value={form.restock_id || ''} onChange={(e) => setForm({ ...form, restock_id: e.target.value })} className={`${inputCls} sm:col-span-2`}>
+          <option value="">Take from: oldest restock with stock left (automatic)</option>
+          {batchOptions.map((b) => (
+            <option key={b.id} value={b.id}>Batch {b.n} · restocked {b.date} · {Math.max(b.left, 0)} left</option>
+          ))}
         </select>
       )}
       <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className={inputCls} />
       <input placeholder="Customer name" required value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} className={inputCls} />
       <input placeholder="Room / location" value={form.customer_location} onChange={(e) => setForm({ ...form, customer_location: e.target.value })} className={inputCls} />
-      <input type="number" placeholder="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className={`${inputCls} font-mono-nums`} />
+      <input type="number" min="1" placeholder="Quantity sold" required={products.length > 0} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} className={`${inputCls} font-mono-nums`} />
       <select value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })} className={inputCls}>
         <option value="momo">MoMo</option>
         <option value="telecash">Telecash</option>
@@ -331,20 +353,39 @@ function SaleFields({ form, setForm, products }) {
   )
 }
 
-export function SalesTab({ businessId, userId, color, products, sales, onChange }) {
+// Saves a sale. If the optional restock_id column isn't in the database yet
+// (schema_batches.sql not run), retries without it so logging sales never breaks —
+// unless a specific restock was picked, in which case it says what's needed.
+async function writeSale(run, payload) {
+  let res = await run(payload)
+  if (res.error && /restock_id/.test(res.error.message || '')) {
+    if (payload.restock_id) {
+      return { error: { message: 'To choose which restock a sale comes from, run the new SQL file (schema_batches.sql) in Supabase first. Or leave it on "automatic".' } }
+    }
+    const { restock_id: _drop, ...rest } = payload
+    res = await run(rest)
+  }
+  return res
+}
+
+export function SalesTab({ businessId, userId, color, products, restocks, batchData, sales, onChange }) {
   const blank = () => ({
-    product_id: '', customer_name: '', customer_location: '', quantity: '',
+    product_id: '', restock_id: '', customer_name: '', customer_location: '', quantity: '',
     payment_method: 'cash', amount_charged: '', amount_paid: '', comments: '', date: today(),
   })
   const [form, setForm] = useState(blank())
+  const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [view, setView] = useState('unpaid') // 'unpaid' | 'paid'
+  const [view, setView] = useState('unpaid') // 'unpaid' | 'paid' | 'fix'
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState(null)
   const [deleteId, setDeleteId] = useState(null)
   const [busy, setBusy] = useState(false)
 
   const owedOf = (s) => Number(s.amount_charged) - Number(s.amount_paid)
+  // a sale only reduces stock if it has BOTH a product and a quantity
+  const needsProduct = (s) => products.length > 0 && (!s.product_id || !(Number(s.quantity) > 0))
+  const unlinked = useMemo(() => sales.filter(needsProduct), [sales, products])
   const unpaid = useMemo(() => sales.filter((s) => owedOf(s) > 0.005), [sales])
   const paid = useMemo(() => sales.filter((s) => owedOf(s) <= 0.005), [sales])
   const totalOwed = unpaid.reduce((sum, s) => sum + owedOf(s), 0)
@@ -366,10 +407,12 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
     e.preventDefault()
     if (!form.customer_name) return
     setSaving(true)
-    await supabase.from('business_sales').insert({
+    setError('')
+    const { error: err } = await writeSale((p) => supabase.from('business_sales').insert(p), {
       business_id: businessId,
       user_id: userId,
       product_id: form.product_id || null,
+      restock_id: form.restock_id || null,
       date: form.date,
       customer_name: form.customer_name.trim(),
       customer_location: form.customer_location || null,
@@ -380,14 +423,17 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
       comments: form.comments || null,
     })
     setSaving(false)
-    setForm({ ...blank(), date: form.date, payment_method: form.payment_method })
+    if (err) return setError(err.message || 'Could not save the sale.')
+    setForm({ ...blank(), date: form.date, payment_method: form.payment_method, product_id: form.product_id })
     onChange()
   }
 
   function startEdit(s) {
+    setError('')
     setEditingId(s.id)
     setEditForm({
       product_id: s.product_id || '',
+      restock_id: s.restock_id || '',
       customer_name: s.customer_name,
       customer_location: s.customer_location || '',
       quantity: s.quantity ?? '',
@@ -401,8 +447,10 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
 
   async function saveEdit(e, id) {
     e.preventDefault()
-    await supabase.from('business_sales').update({
+    setError('')
+    const { error: err } = await writeSale((p) => supabase.from('business_sales').update(p).eq('id', id), {
       product_id: editForm.product_id || null,
+      restock_id: editForm.restock_id || null,
       date: editForm.date,
       customer_name: editForm.customer_name.trim(),
       customer_location: editForm.customer_location || null,
@@ -411,7 +459,8 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
       amount_charged: Number(editForm.amount_charged || 0),
       amount_paid: Number(editForm.amount_paid || 0),
       comments: editForm.comments || null,
-    }).eq('id', id)
+    })
+    if (err) return setError(err.message || 'Could not save the changes.')
     setEditingId(null)
     onChange()
   }
@@ -435,10 +484,11 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
     if (editingId === s.id) {
       return (
         <form onSubmit={(e) => saveEdit(e, s.id)} className="rounded-lg border bg-surface p-3 grid gap-2 sm:grid-cols-2" style={{ borderColor: `var(--color-${color})` }}>
-          <SaleFields form={editForm} setForm={setEditForm} products={products} />
+          <SaleFields form={editForm} setForm={setEditForm} products={products} restocks={restocks} batchData={batchData} />
+          {error && <p className="sm:col-span-2 text-sm text-spend">{error}</p>}
           <div className="sm:col-span-2 flex gap-2">
             <button type="submit" className="rounded-lg text-ink text-xs font-medium px-3 py-1.5" style={{ background: `var(--color-${color})` }}>Save</button>
-            <button type="button" onClick={() => setEditingId(null)} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
+            <button type="button" onClick={() => { setEditingId(null); setError('') }} className="rounded-lg border border-line text-muted text-xs px-3 py-1.5">Cancel</button>
           </div>
         </form>
       )
@@ -448,7 +498,9 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm text-text truncate">{s.customer_name}{s.customer_location ? ` · ${s.customer_location}` : ''}</div>
-            <div className="text-xs text-muted">{s.date} · {s.payment_method}{s.quantity ? ` · qty ${s.quantity}` : ''}{s.comments ? ` · ${s.comments}` : ''}</div>
+            <div className="text-xs text-muted">{s.date} · {s.payment_method}{s.quantity ? ` · qty ${s.quantity}` : ''}{s.comments ? ` · ${s.comments}` : ''}
+              {needsProduct(s) && <span style={{ color: 'var(--color-budget)' }}> · not counted in stock — tap Edit and pick the product &amp; quantity</span>}
+            </div>
           </div>
           <div className="text-right shrink-0">
             <div className="font-mono-nums text-sm text-text">{money(s.amount_paid)} / {money(s.amount_charged)}</div>
@@ -472,13 +524,22 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
   return (
     <div>
       <form onSubmit={addSale} className="rounded-xl border border-line bg-surface p-4 grid gap-2 sm:grid-cols-2 mb-6">
-        <SaleFields form={form} setForm={setForm} products={products} />
+        <SaleFields form={form} setForm={setForm} products={products} restocks={restocks} batchData={batchData} />
+        {error && editingId === null && <p className="sm:col-span-2 text-sm text-spend">{error}</p>}
         <button type="submit" disabled={saving} className="sm:col-span-2 rounded-lg text-ink text-sm font-medium py-2.5 disabled:opacity-50" style={{ background: `var(--color-${color})` }}>
           {saving ? 'Saving…' : 'Log sale'}
         </button>
       </form>
 
-      <div className="flex gap-1 mb-4 text-sm">
+      {unlinked.length > 0 && (
+        <div className="rounded-lg border px-4 py-3 mb-4 text-sm"
+          style={{ borderColor: 'var(--color-budget)', background: 'color-mix(in srgb, var(--color-budget) 12%, var(--color-surface))' }}>
+          <span className="text-text">{unlinked.length} sale{unlinked.length === 1 ? ' isn\'t' : 's aren\'t'} linked to a product and quantity, so {unlinked.length === 1 ? 'it hasn\'t' : 'they haven\'t'} reduced your stock. </span>
+          <button onClick={() => setView('fix')} className="underline text-text">Show {unlinked.length === 1 ? 'it' : 'them'} so you can fix it</button>
+        </div>
+      )}
+
+      <div className="flex gap-1 mb-4 text-sm flex-wrap">
         <button onClick={() => setView('unpaid')}
           className={`px-3 py-1.5 rounded-lg border transition-colors ${view === 'unpaid' ? 'text-ink font-medium border-transparent' : 'border-line text-muted hover:text-text'}`}
           style={view === 'unpaid' ? { background: 'var(--color-spend)' } : undefined}>
@@ -489,6 +550,13 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
           style={view === 'paid' ? { background: 'var(--color-income)' } : undefined}>
           Paid ({paid.length})
         </button>
+        {unlinked.length > 0 && (
+          <button onClick={() => setView('fix')}
+            className={`px-3 py-1.5 rounded-lg border transition-colors ${view === 'fix' ? 'text-ink font-medium border-transparent' : 'border-line text-muted hover:text-text'}`}
+            style={view === 'fix' ? { background: 'var(--color-budget)' } : undefined}>
+            Needs product ({unlinked.length})
+          </button>
+        )}
       </div>
 
       {view === 'unpaid' ? (
@@ -509,6 +577,11 @@ export function SalesTab({ businessId, userId, color, products, sales, onChange 
             </div>
           ))}
           {unpaid.length === 0 && <p className="text-sm text-muted">Nobody owes you anything right now.</p>}
+        </div>
+      ) : view === 'fix' ? (
+        <div className="space-y-2">
+          {unlinked.map((s) => <div key={s.id}>{renderSaleRow(s)}</div>)}
+          {unlinked.length === 0 && <p className="text-sm text-muted">All sales are linked to a product — your stock count is accurate.</p>}
         </div>
       ) : (
         <div className="space-y-2">
